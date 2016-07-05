@@ -1,0 +1,10 @@
+Backup
+Kappainputs
+Plots
+Results
+Sims
+TestScripts
+Wilman
+*~
+*.pyc
+*.sh
