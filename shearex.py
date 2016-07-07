@@ -188,11 +188,17 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,60,0,0],uvfrac=0):
 
     print "Simulating Radio obs"
     
-    #Numerical
+    ##Numerical    
     num=np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
     szu=np.shape(num)[0]
     u=np.fft.fftshift(np.fft.fftfreq(szu,pix))
 
+    ##Calculate Antenna noise\ Sampling pattern
+    rms = 0.2*fluxlim
+    frms = rms*np.sqrt(num.size/2)
+    fnoise = np.random.normal(0,frms,(szu,szu))+complex(0,1)*np.random.normal(0,frms,(szu,szu))
+    num += fnoise
+    
     if uvfrac>0:
         uu,vv=np.meshgrid(u,u,sparse=1)
         dist=np.sqrt(uu**2+vv**2)
