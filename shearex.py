@@ -6,7 +6,7 @@ import scipy.interpolate as intp
 import scipy.ndimage.interpolation as scale
 import scipy.stats as stats
 
-def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
+def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
@@ -89,29 +89,47 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
     
     k1,k2=0,0
     if type(Kappa) is str:
-        Ktype=3
+        Ktype = 3
         GammaMax=0.1
         hdu=pyfits.open('Kappainputs/CFHTLenS-w1.fits')
         Kappafull = hdu[0].data
         hdu.close()
     elif type(Kappa) is list:
-        Ktype=2
-        SigGam = Kappa[1]*(60/pix)**2
-    else:
-        Ktype=1
-        Gamma1=0.5
-        Gamma2=0.3
+        Ktype = 2
+        GammaMax = Kappa[0]
+        SigGam = Kappa[1]#*(60/pix)**2
+        if len(Kappa)==4:
+            Kpos = Kappa[2:]
+        else:
+            Kpos = [0,0]
+    elif type(Kappa) is tuple:
+        Ktype = 1
+        a1,x1,y1,a2,x2,y2 = Kappa
+        GammaMax = a1
+        y1,y2 = np.abs(y1),np.abs(y2)
+        gamcov = int(2*np.floor(np.ceil(skysz)/2.)+1)
+        
 
     ###############################Lensing Maps###########################
 
     print "Generating Gamma Maps"
     
     if Ktype==1:
-        gam1map=Gamma1*np.ones_like(xx)
-        gam2map=Gamma2*np.ones_like(xx)
+        u = np.fft.fftfreq(gamcov,60)
+        x1coord = np.where(np.abs(u-x1)<u[1]/2)
+        y1coord = np.where(np.abs(u-y1)<u[1]/2)
+        x2coord = np.where(np.abs(u-x2)<u[1]/2)
+        y2coord = np.where(np.abs(u-y2)<u[1]/2)
+        print x1coord,y1coord
+        fgam1,fgam2 = 2*[np.zeros((gamcov,np.ceil(gamcov/2.)))]
+        fgam1[x1coord,y1coord] = a1
+        fgam2[x2coord,y2coord] = a2
+        print fgam1
+        gam1map = np.fft.irfftn(fgam1,(gamcov,gamcov))
+        gam2map = np.fft.irfftn(fgam2,(gamcov,gamcov))
     else:
         if Ktype==2:
-            Kappa=np.exp(-((xx-Kpos[0])**2+(yy-Kpos[1])**2)/Ksig**2)
+            Kappa=np.exp(-((xx-Kpos[0])**2+(yy-Kpos[1])**2)/SigGam**2)
         else:
             kxstart = np.random.randint(Kappafull.shape[1]-skysz-1)
             kystart = np.random.randint(Kappafull.shape[0]-skysz-1)
@@ -127,16 +145,21 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
         div=None
         gam1map=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam1))).real
         gam2map=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam2))).real
-        mult=GammaMax/np.max(np.abs(gam1map))
-        gam1map*=mult
-        gam2map*=mult
-        uu,vv,mult=3*[None]
+        uu,vv=2*[None]
+    mult=GammaMax/np.max(np.abs(gam1map))
+    gam1map*=mult
+    gam2map*=mult
 
     xx,yy=2*[None]
     print "Extracting Gamma Apmlitudes"
     
-    gam1fun=intp.RectBivariateSpline(x,x,gam1map)
-    gam2fun=intp.RectBivariateSpline(x,x,gam2map)
+    if Ktype==1:
+        xcorase = np.linspace(-30*gamcov,30*gamcov,gamcov)
+        gam1fun=intp.RectBivariateSpline(xcorase,xcorase,gam1map)
+        gam2fun=intp.RectBivariateSpline(xcorase,xcorase,gam2map)
+    else:
+        gam1fun=intp.RectBivariateSpline(x,x,gam1map)
+        gam2fun=intp.RectBivariateSpline(x,x,gam2map)
 
     gamfac=np.power(2,-0.5)#factor of root two scales e for gamma
     if eint==0:
@@ -254,7 +277,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
 ##    ##########################Sky check
 ####    
 ##    skyback=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(ana1))).real
-##    sizefac=1
+    sizefac=1
 ##    print 'plot'
 ##
 ##    plt.figure('Residules')
@@ -262,9 +285,9 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
 ##    approxsky=plt.pcolor(a)
 ##    plt.colorbar(approxsky)
 ##
-##    plt.figure('Gamma1map')
-##    approxsky=plt.pcolor(scale.zoom(gam1map.real,sizefac))
-##    plt.colorbar(approxsky)
+    plt.figure('Gamma1map')
+    approxsky=plt.pcolor(scale.zoom(gam1map.real,sizefac))
+    plt.colorbar(approxsky)
 ##
 ##    plt.figure('truesky')
 ##    truesky=plt.pcolor(scale.zoom(f,sizefac))
