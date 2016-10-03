@@ -6,7 +6,7 @@ import scipy.interpolate as intp
 import scipy.ndimage.interpolation as scale
 import scipy.stats as stats
 
-def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,60,0,0],uvfrac=0):
+def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0,0.1],uvfrac=0):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
@@ -96,9 +96,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,60,0,0],uvfrac=0):
         hdu.close()
     elif type(Kappa) is list:
         Ktype=2
-        GammaMax=Kappa[0]
-        Ksig=Kappa[1]*1.15 #Kappa scale in acrsecs
-        Kpos=Kappa[2:]
+        SigGam = Kappa[1]*(60/pix)**2
     else:
         Ktype=1
         Gamma1=0.5
