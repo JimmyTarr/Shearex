@@ -6,7 +6,7 @@ import scipy.interpolate as intp
 import scipy.ndimage.interpolation as scale
 import scipy.stats as stats
 
-def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
+def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
@@ -14,7 +14,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     notes = 'skysz='+str(skysz)+' eint='+str(eint)+' pix='+str(pix)
     
     #Filename Extras
-    Extra='0'
+    Extra='grid'
     
     #UV Frac
     if uvfrac>0:
@@ -25,8 +25,8 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
     fluxlim = 5*10**(-6)
     notes+=' fluxlimit='+'%g'%fluxlim
-    profile = 1.
-    KappaZ = 0.2 #Redshift of Kappa
+    profile = 0.5
+    KappaZ = 0. #Redshift of Kappa
     fgrds = 0 #Include Forgournd galaxies
     lobes = 0 #Include Lobe sources
     points = 0 #Include point sources (Cores and Hotspots)
@@ -58,6 +58,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     print "Creating Array"
     
     x=np.arange(-rng,rng,pix)
+    x[np.abs(x)<0.5*pix] = 0
     xx,yy=np.meshgrid(x,x)
     szx=np.size(x)
 
@@ -73,7 +74,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     if points==0:
         selectidx*=(catcomp!=1)*(catcomp!=3)
         notes+=' no point sources'
-    
+
     b1 = catra[selectidx]-catracen
     b2 = catdec[selectidx]-catdeccen
     mag = catflux[selectidx]
@@ -84,57 +85,71 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     s = len(b1)#number of galaxy components
     notes+='_n lensed sources='+str(lensed.sum())
 
+    ####For Gridded simple Gals
+    Ggals=1
+    if Ggals==1:
+        s = np.ceil((s**0.5))**2
+        bs = np.floor(s**0.5)
+        b1 = rngp-2*rngp*(np.arange(s)%bs)/(bs-1)
+        b2 = rngp-2*rngp*np.floor(np.arange(s)/bs)/(bs-1)
+        mag = np.ones(s)
+        sig = 2*np.ones(s)
+        z = np.ones(s)
+        component = 4*np.ones(s)
+
 
     #############################Lensing signal########################
     
-    k1,k2=0,0
     if type(Kappa) is str:
         Ktype = 3
-        GammaMax=0.1
+        GammaMax=0.
         hdu=pyfits.open('Kappainputs/CFHTLenS-w1.fits')
         Kappafull = hdu[0].data
         hdu.close()
-    elif type(Kappa) is list:
+    elif len(Kappa)==2:
         Ktype = 2
-        GammaMax = Kappa[0]
-        SigGam = Kappa[1]#*(60/pix)**2
-        if len(Kappa)==4:
-            Kpos = Kappa[2:]
-        else:
-            Kpos = [0,0]
-    elif type(Kappa) is tuple:
+        kmin,SigGamma = Kappa[0],Kappa[1]*2**(-0.5)
+    elif len(Kappa)==5:
         Ktype = 1
-        a1,x1,y1,a2,x2,y2 = Kappa
-        GammaMax = a1
-        y1,y2 = np.abs(y1),np.abs(y2)
-        gamcov = int(2*np.floor(np.ceil(skysz)/2.)+1)
+        amp,x1,y1,x2,y2 = Kappa
+        GammaMax = amp
+    else:
+        print 'Unknown kappa type'
         
 
     ###############################Lensing Maps###########################
 
     print "Generating Gamma Maps"
-    
-    if Ktype==1:
-        u = np.fft.fftfreq(gamcov,60)
-        x1coord = np.where(np.abs(u-x1)<u[1]/2)
-        y1coord = np.where(np.abs(u-y1)<u[1]/2)
-        x2coord = np.where(np.abs(u-x2)<u[1]/2)
-        y2coord = np.where(np.abs(u-y2)<u[1]/2)
-        print x1coord,y1coord
-        fgam1,fgam2 = 2*[np.zeros((gamcov,np.ceil(gamcov/2.)))]
-        fgam1[x1coord,y1coord] = a1
-        fgam2[x2coord,y2coord] = a2
-        print fgam1
-        gam1map = np.fft.irfftn(fgam1,(gamcov,gamcov))
-        gam2map = np.fft.irfftn(fgam2,(gamcov,gamcov))
-    else:
+
+    if Ktype<3:
+        u = np.fft.fftfreq(szx,pix)
         if Ktype==2:
-            Kappa=np.exp(-((xx-Kpos[0])**2+(yy-Kpos[1])**2)/SigGam**2)
+            umax = np.abs(np.fft.fftfreq(szx,kmin)).max()
+            ksz = (np.abs(u)<=umax+0.9*u[1]).sum()
+            fgam = ksz*np.random.normal(0,SigGamma,(4,ksz,int(ksz/2.)+1))
+            fgam1 = np.zeros((szx,int(szx/2)+1))
+            fgam2 = np.zeros((szx,int(szx/2)+1))
+            srtidx = int(szx/2)-int((szk-1)/2)
+            fgam1[srtinx:srtind+ksz,0:int(ksz/2.)+1] += fgam[0,:,:]+complex(0,1)*fgam[1,:,:]
+            fgam2[srtinx:srtind+ksz,0:int(ksz/2.)+1] += fgam[2,:,:]+complex(0,1)*fgam[3,:,:]
+            fgam1 = np.fft.fftshift(fgam1,0)
+            fgam2 = np.fft.fftshift(fgam2,0)
         else:
-            kxstart = np.random.randint(Kappafull.shape[1]-skysz-1)
-            kystart = np.random.randint(Kappafull.shape[0]-skysz-1)
-            Kappa = Kappafull[kystart:kystart+skysz,kxstart:kxstart+skysz]
-            Kappa = scale.zoom(Kappa,szx/skysz)
+            x1coord = np.round(x1/u[1])
+            y1coord = np.abs(np.round(y1/u[1]))
+            x2coord = np.round(x2/u[1])
+            y2coord = np.abs(np.round(y2/u[1]))
+            fgam1 = np.zeros((szx,int(szx/2)+1))
+            fgam2 = np.zeros((szx,int(szx/2)+1))
+            fgam1[x1coord,y1coord] = szx**2*amp
+            fgam2[x2coord,y2coord] = szx**2*amp
+        gam1map = np.fft.irfftn(fgam1,(szx,szx))
+        gam2map = np.fft.irfftn(fgam2,(szx,szx))
+    else:
+        kxstart = np.random.randint(Kappafull.shape[1]-skysz-1)
+        kystart = np.random.randint(Kappafull.shape[0]-skysz-1)
+        Kappa = Kappafull[kystart:kystart+skysz,kxstart:kxstart+skysz]
+        Kappa = scale.zoom(Kappa,float(szx)/skysz)
         fKappa=np.fft.fftshift(np.fft.fftn(np.fft.fftshift(Kappa)))
         u=np.fft.fftshift(np.fft.fftfreq(szx,pix))
         uu,vv=np.meshgrid(u,u,sparse=1)
@@ -146,39 +161,33 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
         gam1map=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam1))).real
         gam2map=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam2))).real
         uu,vv=2*[None]
-    mult=GammaMax/np.max(np.abs(gam1map))
-    gam1map*=mult
-    gam2map*=mult
-
+        mult=GammaMax/np.max((np.abs(gam1map),np.abs(gam2map)))
+        gam1map*=mult
+        gam2map*=mult
+    
+    
     xx,yy=2*[None]
     print "Extracting Gamma Apmlitudes"
-    
-    if Ktype==1:
-        xcorase = np.linspace(-30*gamcov,30*gamcov,gamcov)
-        gam1fun=intp.RectBivariateSpline(xcorase,xcorase,gam1map)
-        gam2fun=intp.RectBivariateSpline(xcorase,xcorase,gam2map)
-    else:
-        gam1fun=intp.RectBivariateSpline(x,x,gam1map)
-        gam2fun=intp.RectBivariateSpline(x,x,gam2map)
 
     gamfac=np.power(2,-0.5)#factor of root two scales e for gamma
     if eint==0:
-        gam1 = gam1fun(b2,b1,grid=0)
-        gam2 = gam2fun(b2,b1,grid=0)
+        gam1 = np.zeros(s)
+        gam2 = np.zeros(s)
     else:
-##        np.random.seed(7)
-        gam1 = gam1fun(b2,b1,grid=0)+np.random.normal(0,eint*gamfac,s)
-##        np.random.seed(8)
-        gam2 = gam2fun(b2,b1,grid=0)+np.random.normal(0,eint*gamfac,s)
-    gam1fun,gam2fun=2*[None]
-    notes+=" Gamma Max ="+str(np.max((gam1,gam2)))
+        gam1 = np.random.normal(0,eint*gamfac,s)
+        gam2 = np.random.normal(0,eint*gamfac,s)
+    for i in range(int(s)):
+        invpix = (len(x)-1)/(x.max()-x.min())
+        xcoord = np.round((b1[i]-x[0])*invpix)
+        ycoord = np.round((b2[i]-x[0])*invpix)
+        gam1[i]+= gam1map[ycoord,xcoord]
+        gam2[i]+= gam2map[ycoord,xcoord]
     
     ################################Data Simulation###############################
 
     ######Image Domain
     print  "Building Sky"
 
-    
     f=np.zeros((szx,szx))
     for i in range(int(s)):
         if (component[i]==1)+(component[i]==3):
@@ -186,7 +195,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
             indy = np.where(np.abs(x-b2[i]).min()==np.abs(x-b2[i]))
             f[indy,indx]+=mag[i]
         else:
-            cutrng=15*sig[i]
+            cutrng=10*sig[i]
             indx=np.where((x>=b1[i]-cutrng)&(x<=b1[i]+cutrng))
             indy=np.where((x>=b2[i]-cutrng)&(x<=b2[i]+cutrng))
             xtemp=x[indx]-b1[i]
@@ -197,9 +206,9 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
             else:
                 gam1t=gam1[i]
                 gam2t=gam2[i]
-            temp1=(xb-gam1t*xb-gam2t*yb)**2.+(yb+gam1t*yb-gam2t*xb)**2.
-            temp2=(1/sig[i])*(1.-gam1t**2.-gam2t**2.)**-2
-            ftemp=mag[i]*np.exp(-(temp1*temp2)**(1/(2*profile)))
+            temp=(xb-gam1t*xb-gam2t*yb)**2.+(yb+gam1t*yb-gam2t*xb)**2.
+            #temp2=(1/sig[i])*(1.-gam1t**2.-gam2t**2.)**-2
+            ftemp=mag[i]*np.exp(-(temp/sig[i])**(1/(2*profile)))
             a,b,c,d=indx[0][0],indx[0][-1],indy[0][0],indy[0][-1]
             f[c:d+1,a:b+1]+=ftemp
 ##        print "source",i,"complete"
@@ -215,10 +224,10 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     u=np.fft.fftshift(np.fft.fftfreq(szu,pix))
 
     ##Calculate Antenna noise\ Sampling pattern
-    rms = 0.2*fluxlim
-    frms = rms*np.sqrt(num.size/2)
-    fnoise = np.random.normal(0,frms,(szu,szu))+complex(0,1)*np.random.normal(0,frms,(szu,szu))
-    num += fnoise
+##    rms = 0.2*fluxlim
+##    frms = rms*np.sqrt(num.size/2)
+##    fnoise = np.random.normal(0,frms,(szu,szu))+complex(0,1)*np.random.normal(0,frms,(szu,szu))
+##    num += fnoise
     
     if uvfrac>0:
         uu,vv=np.meshgrid(u,u,sparse=1)
@@ -241,7 +250,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
     Path="Sims"
     fname=str(int(skysz)),"_",str(int(60/pix)),"_",str(int(10*eint)),"_",str(int(Ktype)),"_",Extra,".dat"
     fname=string.join(fname,sep="")
-    wfile=open(os.path.join(Path,fname),'w')
+    wfile=open(os.path.join(Path,fname),'wb')
     np.savez(wfile,sig=sig,mag=mag,b1=b1,b2=b2,u=u,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,num=num,pix=pix,profile=profile,lensed=lensed,notes=notes)
     wfile.close()
     notes+=' '+fname
@@ -277,7 +286,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
 ##    ##########################Sky check
 ####    
 ##    skyback=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(ana1))).real
-    sizefac=1
+##    sizefac=1
 ##    print 'plot'
 ##
 ##    plt.figure('Residules')
@@ -285,9 +294,9 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=[0.1,100],uvfrac=0):
 ##    approxsky=plt.pcolor(a)
 ##    plt.colorbar(approxsky)
 ##
-    plt.figure('Gamma1map')
-    approxsky=plt.pcolor(scale.zoom(gam1map.real,sizefac))
-    plt.colorbar(approxsky)
+##    plt.figure('Gamma1map')
+##    approxsky=plt.pcolor(scale.zoom(gam2map.real,sizefac))
+##    plt.colorbar(approxsky)
 ##
 ##    plt.figure('truesky')
 ##    truesky=plt.pcolor(scale.zoom(f,sizefac))
@@ -321,8 +330,10 @@ def shx(fname,kmax=0.008):
     uu,vv=np.meshgrid(u,u,sparse=1)
     upix=np.gradient(u)[0]
     
-    kax = u[np.abs(u)-kmax<=0.5*np.gradient(u)[0]]#np.linspace(-kmax,kmax,szk)
-    szk = kax.size
+    #kax = u[np.abs(u)-kmax<=0.5*np.gradient(u)[0]]#np.linspace(-kmax,kmax,szk)
+    #szk = kax.size
+    szk = len(gam1map)
+    kax = np.fft.fftshift(np.fft.fftfreq(szk,60))
     kx,ky = np.meshgrid(kax,kax)
     k1res=np.zeros([szk,szk],dtype=complex)
     k2res=np.zeros([szk,szk],dtype=complex)
@@ -355,7 +366,7 @@ def shx(fname,kmax=0.008):
     
 ################### Write ###################################
 
-    wfile=open(os.path.join("Results",fname),'w')
+    wfile=open(os.path.join("Results",fname),'wb')
     np.savez(wfile,k1res=k1res,k2res=k2res,kmax=kmax,szk=szk,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,notes=notes)
     wfile.close()
 
@@ -433,7 +444,7 @@ def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
 
     filename=str(int(istart)),"-real-",fname
     filename=string.join(filename,sep="")
-    wfile=open(os.path.join(Loc,"temp",filename),'w')
+    wfile=open(os.path.join(Loc,"temp",filename),'wb')
     np.savez(wfile,gam1res=gam1res,gam2res=gam2res,ngal=ngal,posmax=posmax,szk=szg,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,notes=notes)
     wfile.close()
 
