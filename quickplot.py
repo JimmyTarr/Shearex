@@ -18,19 +18,28 @@ A=np.load(fname)
 Res,gam1map,pix,kmax=A['k1res'],A['gam1map'],A['pix'],A['kmax']
 A.close()
 
-if real==0:
-    fgam = np.fft.fftshift(np.fft.fftn(gam1map))
+szx = gam1map.shape[0]
+szk = Res.shape[0]
 
-mult = fgam.real.max()/Res.real.max()
+if real==0:
+    In = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(gam1map)))
+    In = In[szx/2-int(szk/2):szx/2+int(szk/2)+1,szx/2-int(szk/2):szx/2+int(szk/2)+1]
+else:
+    In = gam1map
+    
+mult = In.real.max()/Res.real.max()
+print 'm',mult
+print 'mu','sig',(In-mult*Res)[:,int(szk/2)+1:].mean(),(In-mult*Res)[:,int(szk/2)+1:].std()
+print 'SN',Res.max()/((Res-(In/mult))[:,int(szk/2)+1:].std())
 
 plt.figure('In')
-plt.pcolor(fgam.real)
+plt.pcolor(In.real)
 plt.colorbar()
 plt.figure('Out')
 plt.pcolor(Res.real)
 plt.colorbar()
 plt.figure('diff')
-plt.pcolor((fgam-mult*Res).real)
+plt.pcolor((In-mult*Res).real)
 plt.colorbar()
 plt.show()
 plt.close()

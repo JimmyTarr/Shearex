@@ -14,7 +14,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     notes = 'skysz='+str(skysz)+' eint='+str(eint)+' pix='+str(pix)
     
     #Filename Extras
-    Extra='grid'
+    Extra='0'
     
     #UV Frac
     if uvfrac>0:
@@ -25,8 +25,8 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
     fluxlim = 5*10**(-6)
     notes+=' fluxlimit='+'%g'%fluxlim
-    profile = 0.5
-    KappaZ = 0. #Redshift of Kappa
+    profile = 1.0
+    KappaZ = 0.2 #Redshift of Kappa
     fgrds = 0 #Include Forgournd galaxies
     lobes = 0 #Include Lobe sources
     points = 0 #Include point sources (Cores and Hotspots)
@@ -85,13 +85,15 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     s = len(b1)#number of galaxy components
     notes+='_n lensed sources='+str(lensed.sum())
 
-    ####For Gridded simple Gals
-    Ggals=1
-    if Ggals==1:
+    ####For simple Gals
+    sgals=0
+    if sgals==1:
+        #Grid
         s = np.ceil((s**0.5))**2
         bs = np.floor(s**0.5)
         b1 = rngp-2*rngp*(np.arange(s)%bs)/(bs-1)
         b2 = rngp-2*rngp*np.floor(np.arange(s)/bs)/(bs-1)
+        # Simple params
         mag = np.ones(s)
         sig = 2*np.ones(s)
         z = np.ones(s)
@@ -108,7 +110,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
         hdu.close()
     elif len(Kappa)==2:
         Ktype = 2
-        kmin,SigGamma = Kappa[0],Kappa[1]*2**(-0.5)
+        kmin,SigGamma = Kappa[0],np.sqrt(2)*szx**2*Kappa[1]
     elif len(Kappa)==5:
         Ktype = 1
         amp,x1,y1,x2,y2 = Kappa
@@ -125,15 +127,15 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
         u = np.fft.fftfreq(szx,pix)
         if Ktype==2:
             umax = np.abs(np.fft.fftfreq(szx,kmin)).max()
-            ksz = (np.abs(u)<=umax+0.9*u[1]).sum()
-            fgam = ksz*np.random.normal(0,SigGamma,(4,ksz,int(ksz/2.)+1))
-            fgam1 = np.zeros((szx,int(szx/2)+1))
-            fgam2 = np.zeros((szx,int(szx/2)+1))
+            szk = (np.abs(u)<=umax+0.9*u[1]).sum()
+            fgam = np.random.normal(0,SigGamma,(4,szk,int(szk/2.)+1))
+            fgam1 = np.zeros((szx,int(szx/2)+1),dtype=complex)
+            fgam2 = np.zeros((szx,int(szx/2)+1),dtype=complex)
             srtidx = int(szx/2)-int((szk-1)/2)
-            fgam1[srtinx:srtind+ksz,0:int(ksz/2.)+1] += fgam[0,:,:]+complex(0,1)*fgam[1,:,:]
-            fgam2[srtinx:srtind+ksz,0:int(ksz/2.)+1] += fgam[2,:,:]+complex(0,1)*fgam[3,:,:]
-            fgam1 = np.fft.fftshift(fgam1,0)
-            fgam2 = np.fft.fftshift(fgam2,0)
+            fgam1[srtidx:srtidx+szk,0:int(szk/2.)+1] += fgam[0,:,:]+complex(0,1)*fgam[1,:,:]
+            fgam2[srtidx:srtidx+szk,0:int(szk/2.)+1] += fgam[2,:,:]+complex(0,1)*fgam[3,:,:]
+            fgam1 = np.fft.fftshift(fgam1/szk,0)
+            fgam2 = np.fft.fftshift(fgam2/szk,0)
         else:
             x1coord = np.round(x1/u[1])
             y1coord = np.abs(np.round(y1/u[1]))
@@ -143,6 +145,10 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
             fgam2 = np.zeros((szx,int(szx/2)+1))
             fgam1[x1coord,y1coord] = szx**2*amp
             fgam2[x2coord,y2coord] = szx**2*amp
+            if y1coord>0:
+                fgam1 *= 0.5
+            if y2coord>0:
+                fgam2 *= 0.5
         gam1map = np.fft.irfftn(fgam1,(szx,szx))
         gam2map = np.fft.irfftn(fgam2,(szx,szx))
     else:
@@ -164,8 +170,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
         mult=GammaMax/np.max((np.abs(gam1map),np.abs(gam2map)))
         gam1map*=mult
         gam2map*=mult
-    
-    
+
     xx,yy=2*[None]
     print "Extracting Gamma Apmlitudes"
 
@@ -223,7 +228,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     szu=np.shape(num)[0]
     u=np.fft.fftshift(np.fft.fftfreq(szu,pix))
 
-    ##Calculate Antenna noise\ Sampling pattern
+##    ##Calculate Antenna noise\ Sampling pattern
 ##    rms = 0.2*fluxlim
 ##    frms = rms*np.sqrt(num.size/2)
 ##    fnoise = np.random.normal(0,frms,(szu,szu))+complex(0,1)*np.random.normal(0,frms,(szu,szu))
@@ -321,19 +326,18 @@ def shx(fname,kmax=0.008):
     sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
     A.close()
 
-    b1=b1[lensed]
-    b2=b2[lensed]
+    #b1=b1[lensed]
+    #b2=b2[lensed]
 
 ##    ###########################Create???##########################
         
     szu,s=u.size,b1.size
     uu,vv=np.meshgrid(u,u,sparse=1)
     upix=np.gradient(u)[0]
-    
-    #kax = u[np.abs(u)-kmax<=0.5*np.gradient(u)[0]]#np.linspace(-kmax,kmax,szk)
-    #szk = kax.size
-    szk = len(gam1map)
-    kax = np.fft.fftshift(np.fft.fftfreq(szk,60))
+
+    upix = np.gradient(u)[0]
+    kax = u[np.abs(u)<kmax+0.9*upix]
+    szk = kax.size
     kx,ky = np.meshgrid(kax,kax)
     k1res=np.zeros([szk,szk],dtype=complex)
     k2res=np.zeros([szk,szk],dtype=complex)
@@ -344,10 +348,7 @@ def shx(fname,kmax=0.008):
     uk2=2*uu*vv
 
     w = np.ones(s)
-##    denr = 50
-##    nexp = np.pi*s*denr**2/((szu*pix)**2)
-##    for i in range(s):
-##        w[i] = nexp/np.sum(np.sqrt((b1-b1[i])**2+(b2-b2[i])**2)<denr)
+    w += 1./mag
         
     eu = np.exp(2*np.pi*uu)
     ev = np.exp(2*np.pi*vv)
