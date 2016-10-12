@@ -14,7 +14,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     notes = 'skysz='+str(skysz)+' eint='+str(eint)+' pix='+str(pix)
     
     #Filename Extras
-    Extra='0'
+    Extra=''
     
     #UV Frac
     if uvfrac>0:
@@ -85,19 +85,19 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
     s = len(b1)#number of galaxy components
     notes+='_n lensed sources='+str(lensed.sum())
 
-    ####For simple Gals
-    sgals=0
-    if sgals==1:
-        #Grid
-        s = np.ceil((s**0.5))**2
-        bs = np.floor(s**0.5)
-        b1 = rngp-2*rngp*(np.arange(s)%bs)/(bs-1)
-        b2 = rngp-2*rngp*np.floor(np.arange(s)/bs)/(bs-1)
-        # Simple params
-        mag = np.ones(s)
-        sig = 2*np.ones(s)
-        z = np.ones(s)
-        component = 4*np.ones(s)
+####    ####For simple Gals
+####    sgals=0
+####    if sgals==1:
+####        #Grid
+####        s = np.ceil((s**0.5))**2
+####        bs = np.floor(s**0.5)
+####        b1 = rngp-2*rngp*(np.arange(s)%bs)/(bs-1)
+####        b2 = rngp-2*rngp*np.floor(np.arange(s)/bs)/(bs-1)
+####        # Simple params
+####        mag = np.ones(s)
+####        sig = 2*np.ones(s)
+####        z = np.ones(s)
+####        component = 4*np.ones(s)
 
 
     #############################Lensing signal########################
@@ -137,10 +137,11 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),uvfrac=0):
             fgam1 = np.fft.fftshift(fgam1/szk,0)
             fgam2 = np.fft.fftshift(fgam2/szk,0)
         else:
-            x1coord = np.round(x1/u[1])
-            y1coord = np.abs(np.round(y1/u[1]))
-            x2coord = np.round(x2/u[1])
-            y2coord = np.abs(np.round(y2/u[1]))
+            x1coord = int(np.round(x1/u[1]))
+            y1coord = int(np.abs(np.round(y1/u[1])))
+            Extra+=str(amp)[0]+str(x1coord)+str(y1coord)
+            x2coord = int(np.round(x2/u[1]))
+            y2coord = int(np.abs(np.round(y2/u[1])))
             fgam1 = np.zeros((szx,int(szx/2)+1))
             fgam2 = np.zeros((szx,int(szx/2)+1))
             fgam1[x1coord,y1coord] = szx**2*amp
@@ -326,8 +327,8 @@ def shx(fname,kmax=0.008):
     sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
     A.close()
 
-    #b1=b1[lensed]
-    #b2=b2[lensed]
+    b1=b1[lensed]
+    b2=b2[lensed]
 
 ##    ###########################Create???##########################
         
