@@ -9,6 +9,7 @@ FILM_paper
 Sec*
 Poster*
 testplot.py
+UVcov/*.fits
 *#
 *~
 *.pyc
