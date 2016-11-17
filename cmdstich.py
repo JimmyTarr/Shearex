@@ -29,11 +29,11 @@ if partname.split('-')[0]=='real':
     kmax,gam1map,gam2map,Kappa,pix,notes=A['posmax'],A['gam1map'],A['gam2map'],A['Kappa'],A['pix'],str(A['notes'])
     wfile.close()
 
-    ngal[ngal==0] = 1.
-    k1res[ngal==0] = 0
-    k2res[ngal==0] = 0
-    k1res*=1./ngal
-    k2res*=1./ngal
+##    ngal[ngal==0] = 1.
+##    k1res[ngal==0] = 0
+##    k2res[ngal==0] = 0
+##    k1res*=1./ngal
+##    k2res*=1./ngal
 
 else:
     print 'Fourier'
