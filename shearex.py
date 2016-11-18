@@ -7,7 +7,7 @@ import scipy.ndimage.interpolation as scale
 import scipy.stats as stats
 #from scipy.ndimage.filters import gaussian_filter as smooth
 
-def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
+def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
@@ -24,7 +24,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
         Extra+='_UVmask'
     #Galaxy population parameters
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
-    fluxlim = 1.5*10**(-6)
+    fluxlim = 2*10**(-5)
     notes+=' fluxlimit='+'%g'%fluxlim
     profile = 1.0
     KappaZ = 0.2 #Redshift of Kappa
@@ -47,15 +47,16 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
 
     ###############################Image set-up###########################
 
-    rng = math.ceil(skysz*60./2.)
+    fov = math.ceil(skysz*60./2.)
+    rng = 5*fov
     catracen = np.random.uniform(catra.min()+rng,catra.max()-rng)
     catdeccen = np.random.uniform(catdec.min()+rng,catdec.max()-rng)
     notes+=' cen='+str(catracen)+','+str(catdeccen)
 
     pad=5*np.sort(catsize)[np.ceil(len(catsize)*0.9)]
     rngp = rng-pad
-    selectidx = (catra>catracen-rngp)*(catra<catracen+rngp)*(catdec>catdeccen-rngp)*(catdec<catdeccen+rngp)
-
+    #selectidx = (catra>catracen-rngp)*(catra<catracen+rngp)*(catdec>catdeccen-rngp)*(catdec<catdeccen+rngp)
+    selectidx = ((catra-catracen)**2+(catdec-catdeccen)**2)<rngp**2
     print "Creating Array"
     
     x=np.arange(-rng,rng,pix)
@@ -75,7 +76,7 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
     if points==0:
         selectidx*=(catcomp!=1)*(catcomp!=3)
         notes+=' no point sources'
-    
+
     b1 = catra[selectidx]-catracen
     b2 = catdec[selectidx]-catdeccen
     mag = catflux[selectidx]
@@ -213,7 +214,8 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
             indy = np.where(np.abs(x-b2[i]).min()==np.abs(x-b2[i]))
             f[indy,indx]+=mag[i]
         else:
-            cutrng=10*sig[i]
+            ordercut = 15
+            cutrng = sig[i]*np.log(mag[i]/(10**-ordercut))
             indx=np.where((x>=b1[i]-cutrng)&(x<=b1[i]+cutrng))
             indy=np.where((x>=b2[i]-cutrng)&(x<=b2[i]+cutrng))
             xtemp=x[indx]-b1[i]
@@ -232,19 +234,27 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
 ##        print "source",i,"complete"
     xb,yb,temp1,temp2,ftemp=5*[None]
 
+    ######Add Beam
+    B = np.sinc(0.6*(xx**2+yy**2)**0.5/fov)
+    f *= B
+    
     ######Fourier Domain
 
     print "Simulating Radio obs"
     
     ##Numerical    
     num=np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-    szu = np.shape(num)[0]
-    u = np.fft.fftshift(np.fft.fftfreq(szu,pix))
+    u = np.fft.fftshift(np.fft.fftfreq(szx,pix))
     upix = np.gradient(u)[0]
     ukm = 3*36**2*u/(14*np.pi)
     uu,vv = np.meshgrid(u,u,sparse=1)
 
-##    ##Calculate Antenna noise\ Sampling pattern
+    ##Calculate Antenna noise\ Sampling pattern
+    if Noise<2:
+        print 'Re-binning'
+        num = num.reshape(5,szx/5,5,-1).mean(2).mean(0)
+        print num.shape
+        exit()
     if Noise>0:
         print 'Masking'
         rms = 0.2*fluxlim
@@ -286,6 +296,12 @@ def simsky(skysz=2,eint=0.,pix=0.2,Kappa=(30,0.1),Noise=0):
         num[bcnt==0] = 0
         num += fnoise
 
+        
+
+    print s
+    plt.pcolor(np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)
+    plt.show()
+    exit()
     #############################Write data#######################
 
     print "Saving"
