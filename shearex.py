@@ -2,9 +2,10 @@ import math, os, string, sys, time
 import astropy.io.fits as pyfits
 import numpy as np
 import matplotlib.pyplot as plt
-#import scipy.interpolate as intp
+from scipy import signal
 import scipy.ndimage.interpolation as scale
-import scipy.stats as stats
+#import scipy.stats as stats
+#import scipy.interpolate as intp
 #from scipy.ndimage.filters import gaussian_filter as smooth
 
 def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
@@ -24,7 +25,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         Extra+='_UVmask'
     #Galaxy population parameters
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
-    fluxlim = 2*10**(-5)
+    fluxlim = 2*10**(-6)
     notes+=' fluxlimit='+'%g'%fluxlim
     profile = 1.0
     KappaZ = 0.2 #Redshift of Kappa
@@ -216,8 +217,8 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         else:
             ordercut = 15
             cutrng = sig[i]*np.log(mag[i]/(10**-ordercut))
-            indx=np.where((x>=b1[i]-cutrng)&(x<=b1[i]+cutrng))
-            indy=np.where((x>=b2[i]-cutrng)&(x<=b2[i]+cutrng))
+            indx=np.where((x>=b1[i]-cutrng-pix)*(x<=b1[i]+cutrng+pix))
+            indy=np.where((x>=b2[i]-cutrng-pix)*(x<=b2[i]+cutrng+pix))
             xtemp=x[indx]-b1[i]
             ytemp=x[indy]-b2[i]
             xb,yb=np.meshgrid(xtemp,ytemp,sparse=1)
@@ -235,6 +236,8 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     xb,yb,temp1,temp2,ftemp=5*[None]
 
     ######Add Beam
+    rms = 0.2*fluxlim
+    TH = (xx**2+yy**2)<=fov**2
     B = np.sinc(0.6*(xx**2+yy**2)**0.5/fov)
     f *= B
     
@@ -242,68 +245,81 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
 
     print "Simulating Radio obs"
     
-    ##Numerical    
-    num=np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-    u = np.fft.fftshift(np.fft.fftfreq(szx,pix))
-    upix = np.gradient(u)[0]
-    ukm = 3*36**2*u/(14*np.pi)
-    uu,vv = np.meshgrid(u,u,sparse=1)
+######Numerical    
+##    ukm = 3*36**2*u/(14*np.pi)
 
     ##Calculate Antenna noise\ Sampling pattern
-    if Noise<2:
-        print 'Re-binning'
-        num = num.reshape(5,szx/5,5,-1).mean(2).mean(0)
-        print num.shape
-        exit()
-    if Noise>0:
-        print 'Masking'
-        rms = 0.2*fluxlim
-        frms = rms*np.sqrt(num.size/2)
-        fnoise = np.zeros((szu,szu),dtype=complex)
-        posnoise = np.random.randn(szu/2-1,szu-1)+complex(0,1)*np.random.randn(szu/2-1,szu-1)
-        znoise = np.random.randn(szu/2-1,3)+complex(0,1)*np.random.randn(szu/2-1,3)
+    if Noise==0:
+        f = (f*TH)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+    else:
+        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+        frms = 2*np.sqrt(2)*rms*szx/np.pi
+        print 'Generating Noise map'
+        fnoise = np.zeros((szx,szx),dtype=complex)
+        posnoise = np.random.randn(szx/2-1,szx-1)+complex(0,1)*np.random.randn(szx/2-1,szx-1)
+        znoise = np.random.randn(szx/2-1,3)+complex(0,1)*np.random.randn(szx/2-1,3)
         fnoise[0,0] += np.random.randn()
-        fnoise[0,1:szu/2] += znoise[:,0]
-        fnoise[0,szu/2] += np.random.randn()
-        fnoise[0,szu/2+1:] += np.conj(znoise[:,0][::-1])
-        fnoise[1:szu/2,0] += znoise[:,1]
-        fnoise[1:szu/2,1:] += posnoise
-        fnoise[szu/2,0] += np.random.randn()
-        fnoise[szu/2,1:szu/2] += znoise[:,2]
-        fnoise[szu/2,szu/2] += np.random.randn()
-        fnoise[szu/2,szu/2+1:] += np.conj(znoise[:,2][::-1])
-        fnoise[szu/2+1:,0] += np.conj(znoise[:,1][::-1])
-        fnoise[szu/2+1:,1:] += np.conj(np.rot90(posnoise,2))
-    if Noise==1:
-        num += frms*fnoise
-        num *= (uu**2+vv**2<u[-1]**2)
-    elif Noise==2:
-        frms *= (num.size/2)**0.5*np.gradient(u)[0]*60
-        hdu = pyfits.open('UVcov/SKA8H.fits')
-        ubase = hdu[1].data['U']
-        vbase = hdu[1].data['V']
-        hdu.close()
-        ubins = np.append(u,u[-1]+upix)-upix/2
-        ukmbins = 3*36**2*ubins/(14*np.pi)
-        bcnt,uedges,vedges = np.histogram2d(ubase,vbase,ukmbins)
-        bcnt[0,:] = 0
-        bcnt[:,0] = 0
-        weights = np.zeros((szu,szu))
-        weights[bcnt!=0] = frms*np.sqrt(1./(bcnt.sum()*bcnt[bcnt!=0]))
-        fnoise *= weights
-        xtraN = rms/np.fft.ifftn(np.fft.ifftshift(fnoise)).std()
-        fnoise *= xtraN
-        num[bcnt==0] = 0
-        num += fnoise
+        fnoise[0,1:szx/2] += znoise[:,0]
+        fnoise[0,szx/2] += np.random.randn()
+        fnoise[0,szx/2+1:] += np.conj(znoise[:,0][::-1])
+        fnoise[1:szx/2,0] += znoise[:,1]
+        fnoise[1:szx/2,1:] += posnoise
+        fnoise[szx/2,0] += np.random.randn()
+        fnoise[szx/2,1:szx/2] += znoise[:,2]
+        fnoise[szx/2,szx/2] += np.random.randn()
+        fnoise[szx/2,szx/2+1:] += np.conj(znoise[:,2][::-1])
+        fnoise[szx/2+1:,0] += np.conj(znoise[:,1][::-1])
+        fnoise[szx/2+1:,1:] += np.conj(np.rot90(posnoise,2))
+        if Noise==1:
+            num += frms*fnoise
+            f = (TH*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+        if Noise==2:
+            print 'Sampling'
+            u = np.fft.fftshift(np.fft.fftfreq(szx,pix))
+            upix = np.gradient(u)[0]
+            hdu = pyfits.open('UVcov/SKA8H.fits')
+            ubase = hdu[1].data['U']
+            vbase = hdu[1].data['V']
+            hdu.close()
+            ### Select baseline subset
+##            nant = ubase.size
+##            ubase = ubase[range(0,nant,100)]
+##            vbase = vbase[range(0,nant,100)]
+            ubins = np.append(u,u[-1]+upix)-upix/2
+            ukmbins = 3*36**2*ubins/(14*np.pi)
+            bcnt,uedges,vedges = np.histogram2d(ubase,vbase,ukmbins)
+            bcnt[0,:] = 0
+            bcnt[:,0] = 0
+            weights = np.zeros((szx,szx))
+            weights[bcnt!=0] = frms*np.sqrt(1./(bcnt.sum()*bcnt[bcnt!=0]))
+            fnoise *= weights
+            ### Normailze noise
+            xtraN = rms/np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fnoise))).std()
+            fnoise *= 4*xtraN/np.pi
+            ### Sample
+            num[bcnt==0] = 0
+            num += fnoise
+            ### Regrid
+            f = (TH*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
 
         
-
-    print s
-    plt.pcolor(np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)
-    plt.show()
-    exit()
+    u = np.fft.fftshift(np.fft.fftfreq(num.shape[0],pix))
+    uu,vv = np.meshgrid(u,u,sparse=1)
+    num *= (uu**2+vv**2<u[-1]**2)
     #############################Write data#######################
 
+    infov = b1**2+b2**2<fov**2
+    lensed  = lensed[infov]
+    sig = sig[infov]
+    mag = mag[infov]
+    b1 = b1[infov]
+    b2 = b2[infov]
+    gam1map = gam1map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+    gam2map = gam2map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+    
     print "Saving"
 
     Path="Sims"
