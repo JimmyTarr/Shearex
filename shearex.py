@@ -3,7 +3,7 @@ import astropy.io.fits as pyfits
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-import scipy.ndimage.interpolation as scale
+#import scipy.ndimage.interpolation as scale
 #import scipy.stats as stats
 #import scipy.interpolate as intp
 #from scipy.ndimage.filters import gaussian_filter as smooth
@@ -12,20 +12,30 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
+    #Plot and quit with no save?
+    Plot=0
+
+    #Simulate to first sidelobe?
+    slsim = 0
+    
     #Notes
     notes = 'skysz='+str(skysz)+' eint='+str(eint)+' pix='+str(pix)+'Kappa='+str(Kappa)
     
     #Filename Extras
     Extra=''
     
-    #UV Frac
+    #UV mask and Noise
     if Noise==1:
-        Extra+='_N'
-    elif Noise==2:
         Extra+='_UVmask'
+    elif Noise==2:
+        Extra+='_N'
+    elif Noise==3:
+        Extra+='_N_UVmask'
+        
     #Galaxy population parameters
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
-    fluxlim = 2*10**(-6)
+    fluxlim = 10**(-6)
+    rms = 0.2*fluxlim
     notes+=' fluxlimit='+'%g'%fluxlim
     profile = 1.0
     KappaZ = 0.2 #Redshift of Kappa
@@ -47,9 +57,13 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     catn = len(catra)
 
     ###############################Image set-up###########################
-
+    
     fov = math.ceil(skysz*60./2.)
-    rng = 5*fov
+    if slsim==1:
+        rng = 5*fov
+        Extra+='_SL'
+    else:
+        rng = fov
     catracen = np.random.uniform(catra.min()+rng,catra.max()-rng)
     catdeccen = np.random.uniform(catdec.min()+rng,catdec.max()-rng)
     notes+=' cen='+str(catracen)+','+str(catdeccen)
@@ -62,7 +76,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     
     x=np.arange(-rng,rng,pix)
     x[np.abs(x)<0.5*pix] = 0
-    xx,yy=np.meshgrid(x,x)
+    #xx,yy=np.meshgrid(x,x)
     szx=np.size(x)
 
     ###############################Select Galaxies#########################
@@ -86,7 +100,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     component = catcomp[selectidx]
     lensed = (z>KappaZ)*((component==2)+(component==4))
     s = len(b1)#number of galaxy components
-    notes+='_n lensed sources='+str(lensed.sum())
+    notes+='_n lensed sources='+str((lensed*(b1**2+b2**2<fov**2)).sum())
 
     ####For simple Gals
     sgals=0
@@ -143,7 +157,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
             vv = vv[:,:szx/2+1]
             umax = np.abs(np.fft.fftfreq(szx,kmin)).max()+0.9*u[1]
             szk = (np.abs(u)<=umax).sum()
-            SigGamma *= np.log(np.sqrt(2))*szx**2*szk**-1
+            SigGamma *= 0.5*np.log(2)*szx**2*szk**-1
             fgam = np.random.normal(0,SigGamma,(2,szx,int(szx/2)+1))
             fgam1 = np.zeros((szx,int(szx/2)+1),dtype=complex)+fgam[0,:,:]
             fgam2 = np.zeros((szx,int(szx/2)+1),dtype=complex)+fgam[1,:,:]
@@ -186,8 +200,8 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         mult=GammaMax/np.max((np.abs(gam1map),np.abs(gam2map)))
         gam1map*=mult
         gam2map*=mult
-    
-    print "Extracting Gamma Apmlitudes"
+
+    print "Extracting Gamma Amplitudes"
 
     gamfac=np.power(2,-0.5)#factor of root two scales e for gamma
     if eint==0:
@@ -196,13 +210,15 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     else:
         gam1 = np.random.normal(0,eint*gamfac,s)
         gam2 = np.random.normal(0,eint*gamfac,s)
+    invpix = (len(x)-1)/(x.max()-x.min())
+    xcoord = np.round((b1-x[0])*invpix)
+    ycoord = np.round((b2-x[0])*invpix)
     for i in range(int(s)):
-        invpix = (len(x)-1)/(x.max()-x.min())
-        xcoord = np.round((b1[i]-x[0])*invpix)
-        ycoord = np.round((b2[i]-x[0])*invpix)
-        gam1[i]+= gam1map[ycoord,xcoord]
-        gam2[i]+= gam2map[ycoord,xcoord]
-    
+        gam1[i]+= gam1map[ycoord[i],xcoord[i]]
+        gam2[i]+= gam2map[ycoord[i],xcoord[i]]
+
+    gam1map = gam1map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+    gam2map = gam2map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
     ################################Data Simulation###############################
 
     ######Image Domain
@@ -229,17 +245,16 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
                 gam2t=gam2[i]
             temp=(xb-gam1t*xb-gam2t*yb)**2.+(yb+gam1t*yb-gam2t*xb)**2.
             #temp2=(1/sig[i])*(1.-gam1t**2.-gam2t**2.)**-2
-            ftemp=mag[i]*np.exp(-(temp/sig[i])**(1/(2*profile)))
+            temp = mag[i]*np.exp(-(temp/sig[i])**(1/(2*profile)))
             a,b,c,d=indx[0][0],indx[0][-1],indy[0][0],indy[0][-1]
-            f[c:d+1,a:b+1]+=ftemp
+            f[c:d+1,a:b+1]+=temp
 ##        print "source",i,"complete"
-    xb,yb,temp1,temp2,ftemp=5*[None]
+    xb,yb,temp=3*[None]
 
-    ######Add Beam
-    rms = 0.2*fluxlim
-    TH = (xx**2+yy**2)<=fov**2
+    ######Create Beam Model
+    xx,yy=np.meshgrid(x,x,sparse=1)
     B = np.sinc(0.6*(xx**2+yy**2)**0.5/fov)
-    f *= B
+    xx,yy = 2*[None]
     
     ######Fourier Domain
 
@@ -247,14 +262,41 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     
 ######Numerical    
 ##    ukm = 3*36**2*u/(14*np.pi)
+    srng = szx*fov/(2*rng)
 
     ##Calculate Antenna noise\ Sampling pattern
+    if Plot==1:
+            fsave = (B*f)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
     if Noise==0:
-        f = (f*TH)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+        f = (B*f)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
         num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+    elif Noise==1:        
+        print 'Sampling'
+        ubins = np.fft.fftshift(np.fft.fftfreq(szx+1,pix))
+        upix = np.gradient(ubins)[0]
+        ubins -= upix/2
+        ubins *= 3*36**2/(14*np.pi)
+        hdu = pyfits.open('UVcov/SKA8H.fits')
+        ubase = hdu[1].data['U']
+        vbase = hdu[1].data['V']
+        hdu.close()
+        ### Select baseline subset
+##        nant = ubase.size
+##        ubase = ubase[range(0,nant,100)]
+##        vbase = vbase[range(0,nant,100)]
+        mask = np.histogram2d(ubase,vbase,ubins)[0]>0
+        f *= B
+        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))*mask
+        f = None
+        if slsim==1:
+            print 'Gridding'
+            mask = np.pad(mask[:-2,:-2],((2,0),(2,0)),mode='constant')
+            mask = mask.reshape(szx/5,5,szx/5,-1).sum((1,3))
+            mask[mask==0] = 1
+            num = np.pad(num[:-2,:-2],((2,0),(2,0)),mode='constant')
+            num = num.reshape(szx/5,5,szx/5,5).sum((1,3))/mask
     else:
-        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-        frms = 2*np.sqrt(2)*rms*szx/np.pi
+        frms = 2**(-0.5)*rms*szx
         print 'Generating Noise map'
         fnoise = np.zeros((szx,szx),dtype=complex)
         posnoise = np.random.randn(szx/2-1,szx-1)+complex(0,1)*np.random.randn(szx/2-1,szx-1)
@@ -271,57 +313,89 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         fnoise[szx/2,szx/2+1:] += np.conj(znoise[:,2][::-1])
         fnoise[szx/2+1:,0] += np.conj(znoise[:,1][::-1])
         fnoise[szx/2+1:,1:] += np.conj(np.rot90(posnoise,2))
-        if Noise==1:
-            num += frms*fnoise
-            f = (TH*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
-            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+        posnoise,znoise = 2*[None]
+        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
+        f=None
         if Noise==2:
+            fnoise *= frms
+            fnoise *= rms/(B*np.fft.ifftn(fnoise)).std()
+            if slsim==1:
+                fnoise *= 0.25
+            num += fnoise
+            f = (B*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
+            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))            
+        if Noise==3:
             print 'Sampling'
-            u = np.fft.fftshift(np.fft.fftfreq(szx,pix))
-            upix = np.gradient(u)[0]
+            ubins = np.fft.fftshift(np.fft.fftfreq(szx+1,pix))
+            upix = np.gradient(ubins)[0]
+            ubins -= upix/2.
+            ukmbins = 3*36**2*ubins/(14*np.pi)
             hdu = pyfits.open('UVcov/SKA8H.fits')
             ubase = hdu[1].data['U']
             vbase = hdu[1].data['V']
             hdu.close()
             ### Select baseline subset
-##            nant = ubase.size
-##            ubase = ubase[range(0,nant,100)]
-##            vbase = vbase[range(0,nant,100)]
-            ubins = np.append(u,u[-1]+upix)-upix/2
-            ukmbins = 3*36**2*ubins/(14*np.pi)
-            bcnt,uedges,vedges = np.histogram2d(ubase,vbase,ukmbins)
+##                nant = ubase.size
+##                ubase = ubase[range(0,nant,100)]
+##                vbase = vbase[range(0,nant,100)]
+            bcnt = np.histogram2d(ubase,vbase,ukmbins)[0]
             bcnt[0,:] = 0
             bcnt[:,0] = 0
+            mask = bcnt>0
             weights = np.zeros((szx,szx))
-            weights[bcnt!=0] = frms*np.sqrt(1./(bcnt.sum()*bcnt[bcnt!=0]))
+            weights[mask] = np.sqrt(1./bcnt[mask])
+            weights *= mask.sum()/weights.sum()
+            fnoise *= frms/np.sqrt(B.mean())
+            fnoise = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(B)*np.fft.ifftn(np.fft.ifftshift(fnoise))))
             fnoise *= weights
-            ### Normailze noise
-            xtraN = rms/np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fnoise))).std()
-            fnoise *= 4*xtraN/np.pi
+            bcnt,weights = 2*[None]
             ### Sample
-            num[bcnt==0] = 0
+            num[mask==0] = 0
+            print 'Normailze noise'
+            if slsim==1:
+                mask = np.pad(mask[:-2,:-2],((2,0),(2,0)),mode='constant')
+                mask = mask.reshape(szx/5,5,szx/5,-1).sum((1,3))
+                mask[mask==0] = 1
+                xtraN = rms/np.fft.ifftn(np.fft.ifftshift(np.pad(fnoise[:-2,:-2],((2,0),(2,0)),mode='constant').reshape(szx/5,5,szx/5,5).sum((1,3))/mask)).std()
+            else:
+                xtraN = rms/np.fft.ifftn(np.fft.ifftshift(fnoise)).std()
+            fnoise *= xtraN
             num += fnoise
-            ### Regrid
-            f = (TH*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
-            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-
-        
-    u = np.fft.fftshift(np.fft.fftfreq(num.shape[0],pix))
-    uu,vv = np.meshgrid(u,u,sparse=1)
-    num *= (uu**2+vv**2<u[-1]**2)
+            if slsim==1:
+                print 'Gridding'
+                num = np.pad(num[:-2,:-2],((2,0),(2,0)),mode='constant')
+                num = num.reshape(szx/5,5,szx/5,5).sum((1,3))/mask
+    if (Noise==0)+(Noise==2):
+        num *= B[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]>0.5
+    B = None
+    f = None
+    if Plot==1:
+        print str((lensed*(b1**2+b2**2<fov**2)).sum()),'galaxies'
+        plt.figure('True Sky')
+        plt.pcolor(fsave)
+        plt.colorbar()
+        plt.figure('Sky')
+        plt.pcolor(np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)
+        plt.colorbar()
+        plt.figure('Vis')
+        plt.pcolor(np.log10(np.abs(num)+1))
+        plt.colorbar()
+        plt.show()
+        exit()
+    
     #############################Write data#######################
 
+    u = np.fft.fftshift(np.fft.fftfreq(num.shape[0],pix))
     infov = b1**2+b2**2<fov**2
     lensed  = lensed[infov]
     sig = sig[infov]
     mag = mag[infov]
     b1 = b1[infov]
     b2 = b2[infov]
-    gam1map = gam1map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
-    gam2map = gam2map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+
+    
     
     print "Saving"
-
     Path="Sims"
     fname=str(int(skysz)),"_",str(int(60/pix)),"_",str(int(10*eint)),"_",str(int(Ktype)),Extra,".dat"
     fname=string.join(fname,sep="")
@@ -338,52 +412,6 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     print "Gamma Max =",np.max((gam1,gam2))
     print notes
 
-##    #############################Tests###########################
-##
-##    ###########################Analytical
-##    uu,vv=np.meshgrid(u,u)
-##    mfactor=(2*min(u))**2
-##
-##    xx=None
-##
-##    E=mbar*np.pi*sbar*np.exp(-np.pi**2.*sbar*(uu**2+vv**2))
-##    uk1=2*np.pi**2*sbar*(uu**2-vv**2)
-##    uk2=4*np.pi**2*sbar*uu*vv
-##
-##    ana1=np.zeros_like(num)
-##    for i in range(int(s)):
-##        P=np.exp(-2.*math.pi*complex(0,1)*(b1[i]*uu+b2[i]*vv))
-##        ana1+=P*(1-uk1*gam1[i]-uk2*gam2[i])
-##    ana1*=E*mfactor
-##
-##    uu,vv=None,None
-##
-##    ##########################Sky check
-####    
-##    skyback=np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(ana1))).real
-##    sizefac=1
-##    print 'plot'
-##
-##    plt.figure('Residules')
-##    a=scale.zoom((num-ana1).real,sizefac)
-##    approxsky=plt.pcolor(a)
-##    plt.colorbar(approxsky)
-##
-##    plt.figure('Gamma1map')
-##    approxsky=plt.pcolor(scale.zoom(gam2map.real,sizefac))
-##    plt.colorbar(approxsky)
-##
-##    plt.figure('truesky')
-##    truesky=plt.pcolor(scale.zoom(f,sizefac))
-##    plt.colorbar(truesky)
-##
-##    plt.figure('SkyCheck')
-##    res=plt.pcolor(scale.zoom(f-skyback,sizefac))
-##    plt.colorbar(res)
-##
-
-##    plt.show()
-##    plt.savefig('/users/mctarr/shearex/Plots/')
 
 ##########################################################################################################################################################################################################################################################################################################################################################################################
 
@@ -417,8 +445,10 @@ def shx(fname,kmax=0.008):
     uk1=(uu**2-vv**2)
     uk2=2*uu*vv
 
+    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
+    
     w = np.ones(s)
-    w += 1./mag
+    w += 1./(Bmod*mag)
         
     eu = np.exp(2*np.pi*uu)
     ev = np.exp(2*np.pi*vv)
@@ -493,7 +523,12 @@ def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
 
     uk1=uu**2-vv**2
     uk2=2*uu*vv
-    w = 1/mag
+
+    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
+    Bmod *= Bmod>=0.5
+    
+    w = np.ones(s)
+    w += 1./(Bmod*mag)
 
 ##    print 'starting analysis'
     pg=0

@@ -1,9 +1,9 @@
 #!/usr/bin/python
 
 import shearex, sys
-import numpy as np
+#import numpy as np
 
-skysz,eint,pix=np.float(sys.argv[1]),np.float(sys.argv[2]),np.float(sys.argv[3])
+skysz,eint,pix=float(sys.argv[1]),float(sys.argv[2]),float(sys.argv[3])
 Noise=int(sys.argv[5])
 
 

@@ -26,34 +26,35 @@ u = u[szx/2-szk/2:szx/2+szk/2+1]
 uu,vv = np.meshgrid(u,u,sparse=1)
 umax = np.abs(u.max()+0.9*np.gradient(u)[0])
 Res = out*(uu**2+vv**2<umax**2)
+#Res *= np.sinc((uu**2+vv**2)**0.5/umax)
 
 In = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(gamap)))
 In = In[szx/2-int(szk/2):szx/2+int(szk/2)+1,szx/2-szk/2:szx/2+int(szk/2)+1]
 
-m,c,r,p,stderr = stats.linregress(In.ravel(),Res.ravel())
-In *= m
-Res -= c
+m,c,r,p,stderr = stats.linregress(In[uu**2+vv**2<umax**2],Res[uu**2+vv**2<umax**2])
+Res[uu**2+vv**2<umax**2] -= c
+Res *= 1./m.real
 diff = In-Res
 print 'mc',m,c
-print 'rps',r,p
+print 'rps',r,p,stderr
 print 'SN',In.std()/diff.std()
 
-n=15
-htr,bt = np.histogram(In.real.ravel(),n)
-hti = np.histogram(In.imag.ravel(),bt)[0]
-hdr,bd = np.histogram(diff.real.ravel(),n)
-hdi = np.histogram(diff.imag.ravel(),bd)[0]
+n=10
+tempt = In[uu**2+vv**2<umax**2].ravel()
+tempr = Res[uu**2+vv**2<umax**2].ravel()
+tempd = diff[uu**2+vv**2<umax**2].ravel()
+htr,bt = np.histogram(tempt.real,n)
+hti = np.histogram(tempt.imag,bt)[0]
+n *= np.ceil((tempd.real.max()-tempd.real.min())/(bt.max()-bt.min()))
+hdr,bd = np.histogram(tempd.real,n)
+hdi = np.histogram(tempd.ravel(),bd)[0]
 
-##n-=10
-##sigdiff = np.zeros(n)
-##bk = np.linspace(0,np.abs(u).max()**2,n+1)
-##for i in range(n):
-##    sigdiff[i] = diff[((uu**2+vv**2>=bk[i])*(uu**2+vv**2<bk[i+1]))].std()
-##plt.figure('In vs diff spread')
-##plt.plot(bk[:-1]**0.5,sigdiff)
+##plt.figure()
+##plt.pcolor((diff).real)
+##plt.colorbar()
 plt.figure('In vs Out')
-plt.scatter(In.real.ravel(),Res.real.ravel(),15,'g')
-plt.scatter(In.imag.ravel(),Res.imag.ravel(),15,'b')
+plt.scatter(tempt.real,tempr.real,15,'g')
+plt.scatter(tempt.imag,tempr.imag,15,'b')
 plt.plot(np.linspace(-In.real.max(),In.real.max(),10),np.linspace(-In.real.max(),In.real.max(),10),'r')
 plt.figure('Signal and Noise')
 plt.plot(bt[:-1],htr,'g')
