@@ -5,10 +5,9 @@ import numpy as np
 
 print sys.argv
 
-a=float(sys.argv[3])
-b=int(sys.argv[4])-1
+a=float(sys.argv[2])
 
-shearex.shxreal(sys.argv[2],b,sys.argv[1],a)
+shearex.shxreal(sys.argv[1],a)
 
 print "Job Complete"
 

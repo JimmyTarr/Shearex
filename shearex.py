@@ -4,19 +4,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 #import scipy.ndimage.interpolation as scale
-#import scipy.stats as stats
+import scipy.stats as stats
 #import scipy.interpolate as intp
 #from scipy.ndimage.filters import gaussian_filter as smooth
+#from memory_profiler import profile
 
-def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
+#@profile
+def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=(0,0)):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     ###############################Inputs#########################################
 
     #Plot and quit with no save?
-    Plot=0
+    Plot = 0
 
-    #Simulate to first sidelobe?
-    slsim = 0
+    #Simulate sidelobes?
+    Nsl = 2 # currently only working for Nsl = 0,2,5
+    slsim = Nsl>0
+    if slsim:
+        gfac = int((Nsl+1)/0.6)
+        gcells = 8 ##Reccomend odd
+
+    #Turn on dirctional response beam?
+    Beam = 1
     
     #Notes
     notes = 'skysz='+str(skysz)+' eint='+str(eint)+' pix='+str(pix)+'Kappa='+str(Kappa)
@@ -25,12 +34,12 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     Extra=''
     
     #UV mask and Noise
-    if Noise==1:
-        Extra+='_UVmask'
-    elif Noise==2:
+    if Noise[0]==1:
         Extra+='_N'
-    elif Noise==3:
-        Extra+='_N_UVmask'
+    if Noise[1]==1:
+        Extra+='_Rmask'
+    elif Noise[1]==2:
+        Extra+='_UVmask'
         
     #Galaxy population parameters
     #Profile: Sirsic index, 0.5=Gaussian, 1=Exponential disk...
@@ -60,7 +69,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     
     fov = math.ceil(skysz*60./2.)
     if slsim==1:
-        rng = 5*fov
+        rng = (Nsl+1)*fov/0.6
         Extra+='_SL'
     else:
         rng = fov
@@ -71,13 +80,14 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     pad=5*np.sort(catsize)[np.ceil(len(catsize)*0.9)]
     rngp = rng-pad
     #selectidx = (catra>catracen-rngp)*(catra<catracen+rngp)*(catdec>catdeccen-rngp)*(catdec<catdeccen+rngp)
-    selectidx = ((catra-catracen)**2+(catdec-catdeccen)**2)<rngp**2
+    selectidx = ((catra-catracen)**2+(catdec-catdeccen)**2)<=rngp**2
     print "Creating Array"
     
     x=np.arange(-rng,rng,pix)
     x[np.abs(x)<0.5*pix] = 0
     #xx,yy=np.meshgrid(x,x)
     szx=np.size(x)
+    srng = szx*fov/(2*rng)
 
     ###############################Select Galaxies#########################
 
@@ -103,18 +113,20 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     notes+='_n lensed sources='+str((lensed*(b1**2+b2**2<fov**2)).sum())
 
     ####For simple Gals
-    sgals=0
-    if sgals==1:
+    grid = 0
+    sgals = 0
+    if grid==1:
         ####Grid
         s = np.ceil((s**0.5))**2
         bs = np.floor(s**0.5)
         b1 = rngp-2*rngp*(np.arange(s)%bs)/(bs-1)
         b2 = rngp-2*rngp*np.floor(np.arange(s)/bs)/(bs-1)
-        Extra += 'Grid'
+        Extra += '_Grid'
+    if sgals==1:
         ####Simple params
         mag = np.ones(s)
         sig = 2*np.ones(s)
-        Extra+='simp_mag'
+        Extra+='_simp_gals'
         z = np.ones(s)
         component = 4*np.ones(s)
 
@@ -179,8 +191,8 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
                 fgam1 *= 0.5
             if y2coord>0:
                 fgam2 *= 0.5
-        gam1map = np.fft.fftshift(np.fft.irfftn(fgam1,(szx,szx)))
-        gam2map = np.fft.fftshift(np.fft.irfftn(fgam2,(szx,szx)))
+        gam1map = np.fft.fftshift(np.fft.irfftn(fgam1,(szx,szx))).real
+        gam2map = np.fft.fftshift(np.fft.irfftn(fgam2,(szx,szx))).real
     else:
         kxstart = np.random.randint(Kappafull.shape[1]-skysz-1)
         kystart = np.random.randint(Kappafull.shape[0]-skysz-1)
@@ -217,8 +229,8 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         gam1[i]+= gam1map[ycoord[i],xcoord[i]]
         gam2[i]+= gam2map[ycoord[i],xcoord[i]]
 
-    gam1map = gam1map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
-    gam2map = gam2map[szx/2-szx/10:szx/2+szx/10,szx/2-szx/10:szx/2+szx/10]
+    gam1map = gam1map[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
+    gam2map = gam2map[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
     ################################Data Simulation###############################
 
     ######Image Domain
@@ -252,53 +264,29 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
     xb,yb,temp=3*[None]
 
     ######Create Beam Model
-    xx,yy=np.meshgrid(x,x,sparse=1)
-    B = np.sinc(0.6*(xx**2+yy**2)**0.5/fov)
-    xx,yy = 2*[None]
-    
+    if Beam==1:
+        xx,yy=np.meshgrid(x,x,sparse=1)
+        r = np.sqrt(xx**2+yy**2)
+        B = np.abs(np.sinc(0.6*r/fov)) #Sinc
+        B *= np.exp(-np.log(2)*(0.3*r/fov)**2) #Ginc
+        xx,yy,r = 3*[None]
+    else:
+        B = np.ones_like(f)
+        Extra += '_NoBeam'
+    f *= B
     ######Fourier Domain
 
     print "Simulating Radio obs"
+    num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
     
-######Numerical    
-##    ukm = 3*36**2*u/(14*np.pi)
-    srng = szx*fov/(2*rng)
-
     ##Calculate Antenna noise\ Sampling pattern
-    if Plot==1:
-            fsave = (B*f)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
-    if Noise==0:
-        f = (B*f)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
-        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-    elif Noise==1:        
-        print 'Sampling'
-        ubins = np.fft.fftshift(np.fft.fftfreq(szx+1,pix))
-        upix = np.gradient(ubins)[0]
-        ubins -= upix/2
-        ubins *= 3*36**2/(14*np.pi)
-        hdu = pyfits.open('UVcov/SKA8H.fits')
-        ubase = hdu[1].data['U']
-        vbase = hdu[1].data['V']
-        hdu.close()
-        ### Select baseline subset
-##        nant = ubase.size
-##        ubase = ubase[range(0,nant,100)]
-##        vbase = vbase[range(0,nant,100)]
-        mask = np.histogram2d(ubase,vbase,ubins)[0]>0
-        f *= B
-        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))*mask
-        f = None
-        if slsim==1:
-            print 'Gridding'
-            mask = np.pad(mask[:-2,:-2],((2,0),(2,0)),mode='constant')
-            mask = mask.reshape(szx/5,5,szx/5,-1).sum((1,3))
-            mask[mask==0] = 1
-            num = np.pad(num[:-2,:-2],((2,0),(2,0)),mode='constant')
-            num = num.reshape(szx/5,5,szx/5,5).sum((1,3))/mask
-    else:
+    if Plot>0:
+        fsave = f[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
+    f = None
+    if Noise[0]==1:
+        fnoise = np.zeros((szx,szx),dtype=complex)
         frms = 2**(-0.5)*rms*szx
         print 'Generating Noise map'
-        fnoise = np.zeros((szx,szx),dtype=complex)
         posnoise = np.random.randn(szx/2-1,szx-1)+complex(0,1)*np.random.randn(szx/2-1,szx-1)
         znoise = np.random.randn(szx/2-1,3)+complex(0,1)*np.random.randn(szx/2-1,3)
         fnoise[0,0] += np.random.randn()
@@ -314,93 +302,119 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=0):
         fnoise[szx/2+1:,0] += np.conj(znoise[:,1][::-1])
         fnoise[szx/2+1:,1:] += np.conj(np.rot90(posnoise,2))
         posnoise,znoise = 2*[None]
-        num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))
-        f=None
-        if Noise==2:
-            fnoise *= frms
-            fnoise *= rms/(B*np.fft.ifftn(fnoise)).std()
-            if slsim==1:
-                fnoise *= 0.25
-            num += fnoise
-            f = (B*np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
-            num = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(f)))            
-        if Noise==3:
-            print 'Sampling'
-            ubins = np.fft.fftshift(np.fft.fftfreq(szx+1,pix))
-            upix = np.gradient(ubins)[0]
-            ubins -= upix/2.
-            ukmbins = 3*36**2*ubins/(14*np.pi)
-            hdu = pyfits.open('UVcov/SKA8H.fits')
-            ubase = hdu[1].data['U']
-            vbase = hdu[1].data['V']
-            hdu.close()
-            ### Select baseline subset
-##                nant = ubase.size
-##                ubase = ubase[range(0,nant,100)]
-##                vbase = vbase[range(0,nant,100)]
-            bcnt = np.histogram2d(ubase,vbase,ukmbins)[0]
-            bcnt[0,:] = 0
-            bcnt[:,0] = 0
-            mask = bcnt>0
+        fnoise *= frms/np.sqrt(B.mean())
+        fnoise = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(B)*np.fft.ifftn(np.fft.ifftshift(fnoise))))
+    else:
+        fnoise = 0
+
+    B = B[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
+    
+    if Noise[1]==1:
+        u = np.fft.fftshift(np.fft.fftfreq(szx,pix))
+        uu,vv = np.meshgrid(u,u,sparse=1)
+        rho = np.sqrt(uu**2+vv**2)
+        uu,vv = 2*[None]
+        hmpix = 1.#in arcsecs
+        S = np.exp(-2*hmpix*np.log(2)*rho)#rho<=1/(2*hmpix)#
+        num *= S
+        if Noise[0]==1:
+            fnoise *= np.sqrt(S/S.mean())
+        rho,S = 2*[None]
+    elif Noise[1]==2:
+        print 'Sampling'
+        ubins = np.fft.fftshift(np.fft.fftfreq(szx+1,pix))
+        upix = np.gradient(ubins)[0]
+        ubins -= upix/2
+        ubins *= 3*36**2/(14*np.pi)
+        hdu = pyfits.open('UVcov/SKA8H.fits')
+        ubase = hdu[1].data['U']
+        vbase = hdu[1].data['V']
+        hdu.close()
+    ##    ### Select baseline subset
+    ##    nant = ubase.size
+    ##    ubase = ubase[range(0,nant,1000)]
+    ##    vbase = vbase[range(0,nant,1000)]
+        bcnt = np.histogram2d(ubase,vbase,ubins)[0]
+        bcnt[0,:] = 0
+        bcnt[:,0] = 0
+        mask = bcnt>0
+        num[mask==0] = 0
+        if Noise[0]==1:
+            fnoise[mask==0] = 0
             weights = np.zeros((szx,szx))
             weights[mask] = np.sqrt(1./bcnt[mask])
             weights *= mask.sum()/weights.sum()
-            fnoise *= frms/np.sqrt(B.mean())
-            fnoise = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(B)*np.fft.ifftn(np.fft.ifftshift(fnoise))))
             fnoise *= weights
-            bcnt,weights = 2*[None]
-            ### Sample
-            num[mask==0] = 0
-            print 'Normailze noise'
-            if slsim==1:
-                mask = np.pad(mask[:-2,:-2],((2,0),(2,0)),mode='constant')
-                mask = mask.reshape(szx/5,5,szx/5,-1).sum((1,3))
-                mask[mask==0] = 1
-                xtraN = rms/np.fft.ifftn(np.fft.ifftshift(np.pad(fnoise[:-2,:-2],((2,0),(2,0)),mode='constant').reshape(szx/5,5,szx/5,5).sum((1,3))/mask)).std()
-            else:
-                xtraN = rms/np.fft.ifftn(np.fft.ifftshift(fnoise)).std()
-            fnoise *= xtraN
+            fnoise *= rms/np.fft.ifftn(np.fft.ifftshift(fnoise)).std()
+            weights = None
+        bcnt,mask = 2*[None]
+            
+    if slsim==1:
+        r = np.linspace(-(gcells/2.),gcells/2.,gcells*gfac)
+        rx,ry = np.meshgrid(r,r,sparse=1)
+        rr = np.sqrt(rx**2+ry**2)
+        G = np.sinc(rr)*np.exp(-rr**2)
+        if Noise[0]==1:
+            ####print 'Normailze noise'
+            fnoise *= rms/np.fft.ifftn(np.fft.ifftshift(signal.fftconvolve(fnoise,G,'same')[np.mgrid[0:szx:gfac,0:szx:gfac][0],np.mgrid[0:szx:gfac,0:szx:gfac][1]])).std()
             num += fnoise
-            if slsim==1:
-                print 'Gridding'
-                num = np.pad(num[:-2,:-2],((2,0),(2,0)),mode='constant')
-                num = num.reshape(szx/5,5,szx/5,5).sum((1,3))/mask
-    if (Noise==0)+(Noise==2):
-        num *= B[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]>0.5
-    B = None
-    f = None
-    if Plot==1:
+        fnoise = None
+        print 'Gridding'
+        num = signal.fftconvolve(num,G,'same')[np.mgrid[0:szx:gfac,0:szx:gfac][0],np.mgrid[0:szx:gfac,0:szx:gfac][1]]
+    elif Noise[0]==1:
+        num += fnoise
+    fnoise = None
+
+    if (Noise[1]==0)+(Noise[1]==1):
+        num *= B>B[0,srng/2]
+
+    if Plot>0:
         print str((lensed*(b1**2+b2**2<fov**2)).sum()),'galaxies'
-        plt.figure('True Sky')
-        plt.pcolor(fsave)
-        plt.colorbar()
-        plt.figure('Sky')
-        plt.pcolor(np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real)
-        plt.colorbar()
-        plt.figure('Vis')
-        plt.pcolor(np.log10(np.abs(num)+1))
-        plt.colorbar()
-        plt.show()
+        vt = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(fsave)))
+        m,c,r = stats.linregress(vt.real[num!=0],num.real[num!=0])[:3]
+        num *= 1./m
+        sky = np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(num))).real
+        print 'Person_r Real',r
+        print 'Person_r imag',stats.linregress(vt.imag[num!=0],num.imag[num!=0])[2]
+        print 'Resid Noise', (fsave-sky).std()
+        if Plot==2:
+##            plt.figure('True Sky')
+##            plt.imshow(fsave,origin='lower',interpolation="nearest",vmax=np.abs(fsave).max())
+##            plt.colorbar()
+##            plt.figure('Dirty Image')
+##            plt.imshow(sky,origin='lower',interpolation="nearest",vmax=np.abs(fsave).max())
+##            plt.colorbar()
+            plt.figure('Diff')
+            plt.imshow(fsave-sky,origin='lower',interpolation="nearest")
+            plt.colorbar()
+            plt.figure('Sky vs DI')
+            plt.plot(fsave.ravel(),(sky).ravel(),'.')
+            plt.plot(np.linspace(0,fsave.max(),3),np.linspace(0,fsave.max(),3),'r')
+            u = np.fft.fftshift(np.fft.fftfreq(num.shape[0],pix))
+##            plt.figure('VD')
+##            plt.imshow(np.log10(np.abs(num)),origin='lower',interpolation="nearest",extent=[u.min(),u.max(),u.min(),u.max()])
+##            plt.colorbar()
+            plt.show()
         exit()
     
     #############################Write data#######################
 
     u = np.fft.fftshift(np.fft.fftfreq(num.shape[0],pix))
-    infov = b1**2+b2**2<fov**2
-    lensed  = lensed[infov]
-    sig = sig[infov]
-    mag = mag[infov]
-    b1 = b1[infov]
-    b2 = b2[infov]
+    if slsim==1:
+        infov = (b1**2<fov**2)*(b2**2<fov**2)
+        lensed  = lensed[infov]
+        sig = sig[infov]
+        mag = mag[infov]
+        b1 = b1[infov]
+        b2 = b2[infov]
 
-    
     
     print "Saving"
     Path="Sims"
     fname=str(int(skysz)),"_",str(int(60/pix)),"_",str(int(10*eint)),"_",str(int(Ktype)),Extra,".dat"
     fname=string.join(fname,sep="")
     wfile=open(os.path.join(Path,fname),'wb')
-    np.savez(wfile,sig=sig,mag=mag,b1=b1,b2=b2,u=u,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,num=num,pix=pix,profile=profile,lensed=lensed,notes=notes)
+    np.savez(wfile,sig=sig,mag=mag,b1=b1,b2=b2,u=u,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,num=num,B=B,pix=pix,profile=profile,lensed=lensed,notes=notes)
     wfile.close()
     notes+=' '+fname
 
@@ -421,11 +435,13 @@ def shx(fname,kmax=0.008):
 ##    #############################Import data#######################
 
     A=np.load(os.path.join("Sims",fname))
-    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
+    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,B,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['B'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
     A.close()
-
-    b1=b1[lensed]
-    b2=b2[lensed]
+    
+    b1 = b1[lensed]
+    b2 = b2[lensed]
+    mag = mag[lensed]
+    sig = sig[lensed]
 
 ##    ###########################Create???##########################
         
@@ -445,11 +461,14 @@ def shx(fname,kmax=0.008):
     uk1=(uu**2-vv**2)
     uk2=2*uu*vv
 
-    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
+    r = np.sqrt(b1**2+b2**2)
+    fov = szu*pix/2
+    Bmod = np.abs(np.sinc(0.6*r/fov))*np.exp(-np.log(2)*(0.3*r/fov)**2)
     
     w = np.ones(s)
-    w += 1./(Bmod*mag)
-        
+    w *= 1./(mag)
+    w *= 1./Bmod
+
     eu = np.exp(2*np.pi*uu)
     ev = np.exp(2*np.pi*vv)
     ekx = np.exp(2*np.pi*kx)
@@ -468,7 +487,7 @@ def shx(fname,kmax=0.008):
 ################### Write ###################################
 
     wfile=open(os.path.join("Results",fname),'wb')
-    np.savez(wfile,k1res=k1res,k2res=k2res,kmax=kmax,szk=szk,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,u=u,notes=notes)
+    np.savez(wfile,k1res=k1res,k2res=k2res,kmax=kmax,szk=szk,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,u=u,b1=b1,b2=b2,mag=mag,sig=sig,notes=notes)
     wfile.close()
 
     runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
@@ -480,29 +499,24 @@ def shx(fname,kmax=0.008):
 ###################################################################################
 #####################################################################################
 
-def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
+def shxreal(fname,gpix=60):
     stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
     
 ##    #############################Import data#######################
     
-    wfile=open(os.path.join(Loc,'Sims',fname),'r')
-    A=np.load(wfile)
-    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['lensed'],str(A['notes'])
-    wfile.close()
+    A=np.load(os.path.join("Sims",fname))
+    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,B,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['B'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
+    A.close()
 
     b1 = b1[lensed]
     b2 = b2[lensed]
     mag = mag[lensed]
+    sig = sig[lensed]
 
 ##    ###########################Create???##########################
 
-    posmax=u.size*pix
-    szg=np.ceil(posmax/gpix)
-
-    iend=istart+1
-    if iend > szg:
-        iend = int(szg)
-##    print iend
+    rng=u.size*pix
+    szg=np.ceil(rng/gpix)
         
     szu,s=u.size,b1.size
     uu,vv=np.meshgrid(u,u,sparse=1)
@@ -510,10 +524,8 @@ def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
     eu=np.exp(-2.*np.pi*uu)
     ev=np.exp(-2.*np.pi*vv)
 
-    posmax=10*np.floor(posmax*(szg-1)/(20*szg))
-    gax=np.linspace(-posmax,posmax,szg,retstep=1)
-    gpix=gax[1]
-    gax=gax[0]
+    posmax=10*np.floor(rng*(szg-1)/(20*szg))
+    gax,gpix=np.linspace(-posmax,posmax,szg,retstep=1)
     gam1res=np.zeros([szg,szg],dtype=complex)
     gam2res=np.zeros([szg,szg],dtype=complex)
     ngal=np.zeros([szg,szg])
@@ -524,40 +536,36 @@ def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
     uk1=uu**2-vv**2
     uk2=2*uu*vv
 
-    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
-    Bmod *= Bmod>=0.5
+    r = np.sqrt(b1**2+b2**2)
+    fov = szu*pix/2
+    Bmod = np.abs(np.sinc(0.6*r/fov))*np.exp(-np.log(2)*(0.3*r/fov)**2)
     
     w = np.ones(s)
-    w += 1./(Bmod*mag)
+    w *= 1./(mag)
+    w *= 1./Bmod
 
 ##    print 'starting analysis'
-    pg=0
-    for i in range(istart,iend):
-        xcen=gax[i]
-        for j in range(int(szg)):
-            ycen=gax[j]
-            gsub=np.where((np.abs(b1-xcen)<gpix/2.)*(np.abs(b2-ycen)<gpix/2.))
-            for g in gsub[0]:
-                pg += w[g]*np.power(eu,complex(0,1)*b1[g])*np.power(ev,complex(0,1)*b2[g])
-            gres=num*np.conj(pg)
-            gam1res[i,j] = np.sum(uk1*gres)
-            gam2res[i,j] = np.sum(uk2*gres)
-            ngal[i,j] = gsub[0].size
-            pg=0
-    ngal[ngal==0] = 1
-    mult = -1./ngal
-    gam1res *= mult
-    gam2res *= mult
-    pg,num,uk1,eu,ev=5*[None]
+    i = np.round((b1+posmax)/gpix)
+    j = np.round((b2+posmax)/gpix)
+    for g in range(s):
+        pg = np.power(eu,complex(0,b1[g]))*np.power(ev,complex(0,b2[g]))
+        fg1 = (uk1*num*np.conj(pg)).sum()
+        fg2 = (uk2*num*np.conj(pg)).sum()
+        gam1res[int(i[g]),int(j[g])] += w[g]*fg1
+        gam2res[int(i[g]),int(j[g])] += w[g]*fg2
+        ngal[int(i[g]),int(j[g])] += 1
     
+    ngal[ngal==0] = 1
+    gam1res *= -1./ngal
+    gam2res *= -1./ngal
+    pg,num,uk1,eu,ev=5*[None]
 
 ################### Write ###################################
 
 
-    filename=str(int(istart)),"-real-",fname
-    filename=string.join(filename,sep="")
-    wfile=open(os.path.join(Loc,"temp",filename),'wb')
-    np.savez(wfile,gam1res=gam1res,gam2res=gam2res,ngal=ngal,posmax=posmax,szk=szg,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,notes=notes)
+    filename="real-"+fname
+    wfile=open(os.path.join("Results",filename),'wb')
+    np.savez(wfile,gam1res=gam1res,gam2res=gam2res,ngal=ngal,posmax=posmax,szg=szg,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,u=u,b1=b1,b2=b2,mag=mag,sig=sig,notes=notes)
     wfile.close()
 
     runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
@@ -565,6 +573,7 @@ def shxreal(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
     M=divmod(divmod(runtime,3600)[1],60)[0]
     S=divmod(divmod(runtime,3600)[1],60)[1]
     print "Run time =",H,M,S
+
 
 ##########################################################################
 ##Old scripts
@@ -701,3 +710,89 @@ def shxold(fname,start,szk,kmax=0.005,rows=1):
 ##################################################################
 ##################################################################      
         
+def shxrealold(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
+    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
+    
+##    #############################Import data#######################
+    
+    wfile=open(os.path.join(Loc,'Sims',fname),'r')
+    A=np.load(wfile)
+    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,B,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['B'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
+    wfile.close()
+
+    b1 = b1[lensed]
+    b2 = b2[lensed]
+    mag = mag[lensed]
+    sig = sig[lensed]
+
+##    ###########################Create???##########################
+
+    posmax=u.size*pix
+    szg=np.ceil(posmax/gpix)
+
+    iend=istart+1
+    if iend > szg:
+        iend = int(szg)
+##    print iend
+        
+    szu,s=u.size,b1.size
+    uu,vv=np.meshgrid(u,u,sparse=1)
+    upix=u[1]-u[0]
+    eu=np.exp(-2.*np.pi*uu)
+    ev=np.exp(-2.*np.pi*vv)
+
+    posmax=10*np.floor(posmax*(szg-1)/(20*szg))
+    gax=np.linspace(-posmax,posmax,szg,retstep=1)
+    gpix=gax[1]
+    gax=gax[0]
+    gam1res=np.zeros([szg,szg],dtype=complex)
+    gam2res=np.zeros([szg,szg],dtype=complex)
+    ngal=np.zeros([szg,szg])
+
+    
+##    #########################Do#################################
+
+    uk1=uu**2-vv**2
+    uk2=2*uu*vv
+
+    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
+    Bmod *= Bmod>=0.5
+    
+    w = np.ones(s)
+    w += 1./(Bmod*mag)
+
+##    print 'starting analysis'
+    pg=0
+    for i in range(istart,iend):
+        xcen=gax[i]
+        for j in range(int(szg)):
+            ycen=gax[j]
+            gsub=np.where((np.abs(b1-xcen)<gpix/2.)*(np.abs(b2-ycen)<gpix/2.))
+            for g in gsub[0]:
+                pg += w[g]*np.power(eu,complex(0,1)*b1[g])*np.power(ev,complex(0,1)*b2[g])
+            gres=num*np.conj(pg)
+            gam1res[i,j] = np.sum(uk1*gres)
+            gam2res[i,j] = np.sum(uk2*gres)
+            ngal[i,j] = gsub[0].size
+            pg=0
+    ngal[ngal==0] = 1
+    mult = -1./ngal
+    gam1res *= mult
+    gam2res *= mult
+    pg,num,uk1,eu,ev=5*[None]
+    
+
+################### Write ###################################
+
+
+    filename=str(int(istart)),"-real-",fname
+    filename=string.join(filename,sep="")
+    wfile=open(os.path.join(Loc,"temp",filename),'wb')
+    np.savez(wfile,gam1res=gam1res,gam2res=gam2res,ngal=ngal,posmax=posmax,szk=szg,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,notes=notes)
+    wfile.close()
+
+    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
+    H=divmod(runtime,3600)[0]
+    M=divmod(divmod(runtime,3600)[1],60)[0]
+    S=divmod(divmod(runtime,3600)[1],60)[1]
+    print "Run time =",H,M,S
