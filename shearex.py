@@ -514,9 +514,6 @@ def shxreal(fname,gpix=60):
     sig = sig[lensed]
 
 ##    ###########################Create???##########################
-
-    rng=u.size*pix
-    szg=np.ceil(rng/gpix)
         
     szu,s=u.size,b1.size
     uu,vv=np.meshgrid(u,u,sparse=1)
@@ -524,12 +521,14 @@ def shxreal(fname,gpix=60):
     eu=np.exp(-2.*np.pi*uu)
     ev=np.exp(-2.*np.pi*vv)
 
-    posmax=10*np.floor(rng*(szg-1)/(20*szg))
+    rng=u.size*pix
+    szg=np.ceil(rng/gpix)
+    posmax=0.5*gpix*szg#10*np.floor(rng*(szg-1)/(20*szg))
+    szg += 1
     gax,gpix=np.linspace(-posmax,posmax,szg,retstep=1)
     gam1res=np.zeros([szg,szg],dtype=complex)
     gam2res=np.zeros([szg,szg],dtype=complex)
     ngal=np.zeros([szg,szg])
-
     
 ##    #########################Do#################################
 
@@ -541,24 +540,32 @@ def shxreal(fname,gpix=60):
     Bmod = np.abs(np.sinc(0.6*r/fov))*np.exp(-np.log(2)*(0.3*r/fov)**2)
     
     w = np.ones(s)
-    w *= 1./(mag)
+    w *= 1./mag
     w *= 1./Bmod
 
-##    print 'starting analysis'
-    i = np.round((b1+posmax)/gpix)
-    j = np.round((b2+posmax)/gpix)
-    for g in range(s):
-        pg = np.power(eu,complex(0,b1[g]))*np.power(ev,complex(0,b2[g]))
-        fg1 = (uk1*num*np.conj(pg)).sum()
-        fg2 = (uk2*num*np.conj(pg)).sum()
-        gam1res[int(i[g]),int(j[g])] += w[g]*fg1
-        gam2res[int(i[g]),int(j[g])] += w[g]*fg2
-        ngal[int(i[g]),int(j[g])] += 1
-    
+    print 'starting analysis'
+    pg=0
+    for i in range(int(szg)):
+        xcen=gax[i]
+        for j in range(int(szg)):
+            ycen=gax[j]
+            gsub=np.where((np.abs(b1-xcen)<gpix/2.)*(np.abs(b2-ycen)<gpix/2.))
+            for g in gsub[0]:
+                pg += w[g]*np.power(eu,complex(0,b1[g]))*np.power(ev,complex(0,b2[g]))
+            gres=num*np.conj(pg)
+            gam1res[i,j] = (uk1*gres).sum()
+            gam2res[i,j] = (uk2*gres).sum()
+            ngal[i,j] = gsub[0].size
+            pg=0
+
     ngal[ngal==0] = 1
     gam1res *= -1./ngal
     gam2res *= -1./ngal
     pg,num,uk1,eu,ev=5*[None]
+
+    gam1res = gam1res.transpose()
+    gam2res = gam2res.transpose()
+    ngal = ngal.transpose()
 
 ################### Write ###################################
 
@@ -578,221 +585,134 @@ def shxreal(fname,gpix=60):
 ##########################################################################
 ##Old scripts
 #####################################################################
-
-def preproc(fname):
-
-    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
-    Loc='/users/mctarr/shearex'
-    
-    wfile=open(os.path.join(Loc,"Sims",fname),'r')
-    A=np.load(wfile)
-    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile']
-    wfile.close()
-
-    szu,s=u.size,b1.size
-    uu,vv=np.meshgrid(u,u,sparse=1)
-    upix=u[1]-u[0]
-
-    
-    rng=szu*pix*0.5
-    x=np.arange(-rng,rng,pix)
-    cutrng=np.ceil(15.*sig.mean())
-    f=np.zeros((szu,szu))
-    propow=1/(2.*profile)
-    const=-sig**(-propow)
-    for i in range(int(s)):
-        indx=np.where((x>=b1[i]-cutrng)&(x<=b1[i]+cutrng))
-        indy=np.where((x>=b2[i]-cutrng)&(x<=b2[i]+cutrng))
-        xtemp=(x[indx]-b1[i])**2.
-        ytemp=(x[indy]-b2[i])**2.
-        xb2,yb2=np.meshgrid(xtemp,ytemp,sparse=1)
-        ftemp=mag[i]*np.exp(-((xb2+yb2)/sig[i])**propow)
-        a,b,c,d=indx[0][0],indx[0][-1],indy[0][0],indy[0][-1]
-        f[c:d+1,a:b+1]+=ftemp
-    f=np.fft.fftshift(np.fft.fftn(np.fft.fftshift(f)))
-    x,xb2,yb2=3*[None]
-
-    idx=np.where(np.abs(num)<10**(-5))
-    if idx[0].size>0:
-        f[idx]=0
-    num-=f
-    
-    
-    wfile=open(os.path.join(Loc,"PreProc",fname),'w')
-    np.savez(wfile,sig=sig,mag=mag,b1=b1,b2=b2,u=u,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,num=num,pix=pix,profile=profile)
-    wfile.close()
-
-    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
-    H=divmod(runtime,3600)[0]
-    M=divmod(divmod(runtime,3600)[1],60)[0]
-    S=divmod(divmod(runtime,3600)[1],60)[1]
-    print "Run time =",H,M,S
-
-#########################################################################
+######
+######def preproc(fname):
+######
+######    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
+######    Loc='/users/mctarr/shearex'
+######    
+######    wfile=open(os.path.join(Loc,"Sims",fname),'r')
+######    A=np.load(wfile)
+######    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile']
+######    wfile.close()
+######
+######    szu,s=u.size,b1.size
+######    uu,vv=np.meshgrid(u,u,sparse=1)
+######    upix=u[1]-u[0]
+######
+######    
+######    rng=szu*pix*0.5
+######    x=np.arange(-rng,rng,pix)
+######    cutrng=np.ceil(15.*sig.mean())
+######    f=np.zeros((szu,szu))
+######    propow=1/(2.*profile)
+######    const=-sig**(-propow)
+######    for i in range(int(s)):
+######        indx=np.where((x>=b1[i]-cutrng)&(x<=b1[i]+cutrng))
+######        indy=np.where((x>=b2[i]-cutrng)&(x<=b2[i]+cutrng))
+######        xtemp=(x[indx]-b1[i])**2.
+######        ytemp=(x[indy]-b2[i])**2.
+######        xb2,yb2=np.meshgrid(xtemp,ytemp,sparse=1)
+######        ftemp=mag[i]*np.exp(-((xb2+yb2)/sig[i])**propow)
+######        a,b,c,d=indx[0][0],indx[0][-1],indy[0][0],indy[0][-1]
+######        f[c:d+1,a:b+1]+=ftemp
+######    f=np.fft.fftshift(np.fft.fftn(np.fft.fftshift(f)))
+######    x,xb2,yb2=3*[None]
+######
+######    idx=np.where(np.abs(num)<10**(-5))
+######    if idx[0].size>0:
+######        f[idx]=0
+######    num-=f
+######    
+######    
+######    wfile=open(os.path.join(Loc,"PreProc",fname),'w')
+######    np.savez(wfile,sig=sig,mag=mag,b1=b1,b2=b2,u=u,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,num=num,pix=pix,profile=profile)
+######    wfile.close()
+######
+######    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
+######    H=divmod(runtime,3600)[0]
+######    M=divmod(divmod(runtime,3600)[1],60)[0]
+######    S=divmod(divmod(runtime,3600)[1],60)[1]
+######    print "Run time =",H,M,S
+######
+###############################################################################
+##############################################################################
+######
+######def shxold(fname,start,szk,kmax=0.005,rows=1):
+######    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
+######    
+#########################################Check szk and istart
+######
+######    if szk%2==0:
+######        szk+=1
+######    
+######    if rows==1:
+######        if start >= szk:
+######            print 'ERROR: Job number greater than requested resolution requires.'
+######            raise SystemExit
+######        istart=int(start)
+######        jstart=0
+######        jend=szk
+######    elif rows==0:
+######        if start >= szk**2:
+######            print 'ERROR: Job number greater than requested resolution requires.'
+######            raise SystemExit
+######        istart=int(np.floor(start/szk))
+######        jstart=int(start%szk)
+######        jend=jstart+1
+######        
+######    
+########    #############################Import data#######################
+######
+######    wfile=open(os.path.join("Sims",fname),'r')
+######    A=np.load(wfile)
+######    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
+######    wfile.close()
+######
+######    b1=b1[lensed]
+######    b2=b2[lensed]
+######
+########    ###########################Create???##########################
+######        
+######    szu,s=u.size,b1.size
+######    uu,vv=np.meshgrid(u,u,sparse=1)
+######    upix=u[1]-u[0]
+######    
+######    kax=np.linspace(-kmax,kmax,szk)
+######    k1res=np.zeros([szk,szk],dtype=complex)
+######    k2res=np.zeros([szk,szk],dtype=complex)
+######
+########    #########################Do#################################
+######
+######    uk1=2*np.pi**2*sig.mean()*(uu**2-vv**2)
+######    uk2=4*np.pi**2*sig.mean()*uu*vv
+######
+######    pgam=np.zeros((szu,szu),dtype=complex)
+######    print 'starting analysis'
+######    for i in range(istart,istart+1):
+######        euk=np.exp(-2*np.pi*(uu+kax[i]))
+######        for j in range(jstart,jend):
+######            evk=np.exp(-2*np.pi*(vv+kax[j]))
+######            for g in range(int(s)):
+######                pgam+=np.power(euk,complex(0,1)*b1[g])*np.power(evk,complex(0,1)*b2[g])
+######            kres=num*np.conj(pgam)
+######            k1res[i,j]=-(upix**2)*np.sum(uk1*kres)
+######            k2res[i,j]=-(upix**2)*np.sum(uk2*kres)
+######            pgam=np.zeros_like(pgam)
+######    pgam,num,gam1,uk1,euk,evk=6*[None]
+######    
+######
+######################### Write ###################################
+######
+######    wfile=open(os.path.join("temp",str(int(start))+"-old-"+fname),'w')
+######    np.savez(wfile,k1res=k1res,k2res=k2res,kmax=kmax,szk=szk,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,rows=rows,notes=notes)
+######    wfile.close()
+######
+######    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
+######    H=divmod(runtime,3600)[0]
+######    M=divmod(divmod(runtime,3600)[1],60)[0]
+######    S=divmod(divmod(runtime,3600)[1],60)[1]
+######    print "Run time =",H,M,S
+######
 ########################################################################
-
-def shxold(fname,start,szk,kmax=0.005,rows=1):
-    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
-    
-###################################Check szk and istart
-
-    if szk%2==0:
-        szk+=1
-    
-    if rows==1:
-        if start >= szk:
-            print 'ERROR: Job number greater than requested resolution requires.'
-            raise SystemExit
-        istart=int(start)
-        jstart=0
-        jend=szk
-    elif rows==0:
-        if start >= szk**2:
-            print 'ERROR: Job number greater than requested resolution requires.'
-            raise SystemExit
-        istart=int(np.floor(start/szk))
-        jstart=int(start%szk)
-        jend=jstart+1
-        
-    
-##    #############################Import data#######################
-
-    wfile=open(os.path.join("Sims",fname),'r')
-    A=np.load(wfile)
-    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
-    wfile.close()
-
-    b1=b1[lensed]
-    b2=b2[lensed]
-
-##    ###########################Create???##########################
-        
-    szu,s=u.size,b1.size
-    uu,vv=np.meshgrid(u,u,sparse=1)
-    upix=u[1]-u[0]
-    
-    kax=np.linspace(-kmax,kmax,szk)
-    k1res=np.zeros([szk,szk],dtype=complex)
-    k2res=np.zeros([szk,szk],dtype=complex)
-
-##    #########################Do#################################
-
-    uk1=2*np.pi**2*sig.mean()*(uu**2-vv**2)
-    uk2=4*np.pi**2*sig.mean()*uu*vv
-
-    pgam=np.zeros((szu,szu),dtype=complex)
-    print 'starting analysis'
-    for i in range(istart,istart+1):
-        euk=np.exp(-2*np.pi*(uu+kax[i]))
-        for j in range(jstart,jend):
-            evk=np.exp(-2*np.pi*(vv+kax[j]))
-            for g in range(int(s)):
-                pgam+=np.power(euk,complex(0,1)*b1[g])*np.power(evk,complex(0,1)*b2[g])
-            kres=num*np.conj(pgam)
-            k1res[i,j]=-(upix**2)*np.sum(uk1*kres)
-            k2res[i,j]=-(upix**2)*np.sum(uk2*kres)
-            pgam=np.zeros_like(pgam)
-    pgam,num,gam1,uk1,euk,evk=6*[None]
-    
-
-################### Write ###################################
-
-    wfile=open(os.path.join("temp",str(int(start))+"-old-"+fname),'w')
-    np.savez(wfile,k1res=k1res,k2res=k2res,kmax=kmax,szk=szk,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,rows=rows,notes=notes)
-    wfile.close()
-
-    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
-    H=divmod(runtime,3600)[0]
-    M=divmod(divmod(runtime,3600)[1],60)[0]
-    S=divmod(divmod(runtime,3600)[1],60)[1]
-    print "Run time =",H,M,S
-
-##################################################################
-##################################################################      
-        
-def shxrealold(fname,istart,Loc="/users/mctarr/shearex",gpix=60):
-    stime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]
-    
-##    #############################Import data#######################
-    
-    wfile=open(os.path.join(Loc,'Sims',fname),'r')
-    A=np.load(wfile)
-    sig,mag,b1,b2,u,gam1map,gam2map,Kappa,num,B,pix,profile,lensed,notes=A['sig'],A['mag'],A['b1'],A['b2'],A['u'],A['gam1map'],A['gam2map'],A['Kappa'],A['num'],A['B'],A['pix'],A['profile'],A['lensed'],str(A['notes'])
-    wfile.close()
-
-    b1 = b1[lensed]
-    b2 = b2[lensed]
-    mag = mag[lensed]
-    sig = sig[lensed]
-
-##    ###########################Create???##########################
-
-    posmax=u.size*pix
-    szg=np.ceil(posmax/gpix)
-
-    iend=istart+1
-    if iend > szg:
-        iend = int(szg)
-##    print iend
-        
-    szu,s=u.size,b1.size
-    uu,vv=np.meshgrid(u,u,sparse=1)
-    upix=u[1]-u[0]
-    eu=np.exp(-2.*np.pi*uu)
-    ev=np.exp(-2.*np.pi*vv)
-
-    posmax=10*np.floor(posmax*(szg-1)/(20*szg))
-    gax=np.linspace(-posmax,posmax,szg,retstep=1)
-    gpix=gax[1]
-    gax=gax[0]
-    gam1res=np.zeros([szg,szg],dtype=complex)
-    gam2res=np.zeros([szg,szg],dtype=complex)
-    ngal=np.zeros([szg,szg])
-
-    
-##    #########################Do#################################
-
-    uk1=uu**2-vv**2
-    uk2=2*uu*vv
-
-    Bmod = np.sinc(2*0.6*np.sqrt(b1**2+b2**2)/(pix*szu))
-    Bmod *= Bmod>=0.5
-    
-    w = np.ones(s)
-    w += 1./(Bmod*mag)
-
-##    print 'starting analysis'
-    pg=0
-    for i in range(istart,iend):
-        xcen=gax[i]
-        for j in range(int(szg)):
-            ycen=gax[j]
-            gsub=np.where((np.abs(b1-xcen)<gpix/2.)*(np.abs(b2-ycen)<gpix/2.))
-            for g in gsub[0]:
-                pg += w[g]*np.power(eu,complex(0,1)*b1[g])*np.power(ev,complex(0,1)*b2[g])
-            gres=num*np.conj(pg)
-            gam1res[i,j] = np.sum(uk1*gres)
-            gam2res[i,j] = np.sum(uk2*gres)
-            ngal[i,j] = gsub[0].size
-            pg=0
-    ngal[ngal==0] = 1
-    mult = -1./ngal
-    gam1res *= mult
-    gam2res *= mult
-    pg,num,uk1,eu,ev=5*[None]
-    
-
-################### Write ###################################
-
-
-    filename=str(int(istart)),"-real-",fname
-    filename=string.join(filename,sep="")
-    wfile=open(os.path.join(Loc,"temp",filename),'wb')
-    np.savez(wfile,gam1res=gam1res,gam2res=gam2res,ngal=ngal,posmax=posmax,szk=szg,gam1map=gam1map,gam2map=gam2map,Kappa=Kappa,pix=pix,notes=notes)
-    wfile.close()
-
-    runtime=60*60*time.gmtime()[3]+60*time.gmtime()[4]+time.gmtime()[5]-stime
-    H=divmod(runtime,3600)[0]
-    M=divmod(divmod(runtime,3600)[1],60)[0]
-    S=divmod(divmod(runtime,3600)[1],60)[1]
-    print "Run time =",H,M,S
+########################################################################      

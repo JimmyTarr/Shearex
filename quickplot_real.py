@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import scipy.stats as stats
 from scipy.ndimage.filters import gaussian_filter as smooth
-#import scipy.ndimage.interpolation as scale
+import scipy.ndimage.interpolation as scale
 import matplotlib.pyplot as plt
 import matplotlib.colors as cls
 
@@ -17,7 +17,8 @@ else:
     gi = 'gam1map'
 
 A=np.load(fname)
-gamt,gamr,pix,posmax,szg = A[gi],A[go].real,A['pix'],A['posmax'],A['szg']
+gamt,gamr,pix,posmax,szg,ngal = A[gi],A[go].real,A['pix'],A['posmax'],A['szg'],A['ngal']
+b1,b2 = A['b1'],A['b2']
 A.close()
 
 szx = gamt.shape[0]
@@ -29,10 +30,11 @@ for i in range(szg):
     for j in range(szg):
         gamts[i,j] = gamt[nadv*i:nadv*(i+1),nadv*j:nadv*(j+1)].mean()
 
-smth = 1
+smth = 0
 if smth>0:
-    gamt = smooth(gamt,1)#,smth)
-    #gamr = smooth(gamr,1)#,smth)
+#    gamt = smooth(gamt,nadv*smth)
+    gamts = smooth(gamts,smth)
+    gamr = smooth(gamr,smth)
 
 ##m,c,r,p,stderr = stats.linregress(gamts.ravel(),gamr.ravel())
 ##gamout = (gamout-c)/m
@@ -41,14 +43,14 @@ if smth>0:
 ##print 'rp',r,p
 ##print 'SN',np.abs(gamin).mean()/diff.std()
 
-plt.figure('In')
-plt.imshow(gamt,origin='lower',extent=(-10,10,-10,10))
-#plt.figure('In small')
-#plt.pcolor(gamts)
+##plt.figure('In')
+###plt.imshow(gamt,origin='lower',extent=(-600,600,-600,600),interpolation='nearest')
+plt.figure('In small')
+plt.pcolor(xs,xs,gamts)
 plt.figure('out')
-plt.pcolor(xs,xs,gamr.real)
-#plt.figure('in vs out')
-#plt.plot(gamts.ravel(),gamr.real.ravel(),'.')
+plt.pcolor(xs,xs,gamr)
+plt.figure('in vs out')
+plt.plot(gamts.ravel(),gamr.ravel(),'.')
 plt.show()
 
 
