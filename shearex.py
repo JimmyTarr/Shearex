@@ -216,18 +216,21 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=(0,0)):
     print "Extracting Gamma Amplitudes"
 
     gamfac=np.power(2,-0.5)#factor of root two scales e for gamma
-    if eint==0:
-        gam1 = np.zeros(s)
-        gam2 = np.zeros(s)
-    else:
-        gam1 = np.random.normal(0,eint*gamfac,s)
-        gam2 = np.random.normal(0,eint*gamfac,s)
     invpix = (len(x)-1)/(x.max()-x.min())
     xcoord = np.round((b1-x[0])*invpix)
     ycoord = np.round((b2-x[0])*invpix)
-    for i in range(int(s)):
-        gam1[i]+= gam1map[ycoord[i],xcoord[i]]
-        gam2[i]+= gam2map[ycoord[i],xcoord[i]]
+    gam1 = np.zeros(s)
+    gam2 = np.zeros(s)
+    if eint==0:
+        for i in range(int(s)):
+            gam1[i] = gam1map[ycoord[i],xcoord[i]]
+            gam2[i] = gam2map[ycoord[i],xcoord[i]]
+    else:
+        e1 = np.random.normal(0,eint*gamfac,s)
+        e2 = np.random.normal(0,eint*gamfac,s)
+        for i in range(int(s)):
+            gam1[i] = (e1[i]+gam1map[ycoord[i],xcoord[i]])#/(1+e1[i]*gam1map[ycoord[i],xcoord[i]])
+            gam2[i] = (e2[i]+gam2map[ycoord[i],xcoord[i]])#/(1+e2[i]*gam2map[ycoord[i],xcoord[i]])
 
     gam1map = gam1map[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
     gam2map = gam2map[szx/2-srng:szx/2+srng,szx/2-srng:szx/2+srng]
@@ -255,7 +258,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=(0,0)):
             else:
                 gam1t=gam1[i]
                 gam2t=gam2[i]
-            temp=(xb-gam1t*xb-gam2t*yb)**2.+(yb+gam1t*yb-gam2t*xb)**2.
+            temp = (xb-gam1t*xb-gam2t*yb)**2.+(yb+gam1t*yb-gam2t*xb)**2.
             #temp2=(1/sig[i])*(1.-gam1t**2.-gam2t**2.)**-2
             temp = mag[i]*np.exp(-(temp/sig[i])**(1/(2*profile)))
             a,b,c,d=indx[0][0],indx[0][-1],indy[0][0],indy[0][-1]
@@ -268,7 +271,7 @@ def simsky(skysz=2,eint=0.,pix=0.3,Kappa=(30,0.1),Noise=(0,0)):
         xx,yy=np.meshgrid(x,x,sparse=1)
         r = np.sqrt(xx**2+yy**2)
         B = np.abs(np.sinc(0.6*r/fov)) #Sinc
-        B *= np.exp(-np.log(2)*(0.3*r/fov)**2) #Ginc
+        B *= np.exp(-(r/(4*fov))**2) #Ginc
         xx,yy,r = 3*[None]
     else:
         B = np.ones_like(f)

@@ -2,65 +2,36 @@
 
 import sys
 import numpy as np
-##import scipy.stats as stats
-import scipy.ndimage.interpolation as scale
+import scipy.stats as stats
+##from scipy.ndimage.filters import gaussian_filter as smooth
+##import scipy.ndimage.interpolation as scale
 import matplotlib.pyplot as plt
-import matplotlib.colors as cls
+##import matplotlib.colors as cls
 
 fname=sys.argv[1]
-if sys.argv[2]=='2':
-    gout = 'k2res'
-    gin = 'gam2map'
-else:
-    gout = 'k1res'
-    gin = 'gam1map'
-if str.isdigit(fname[8]):
-    print 'Fourier'
-    real=0
-else:
-    print 'Real'
-    real=1
+smth = 1
 
 A=np.load(fname)
-Res,gamap,pix,kmax=A[gout],A[gin],A['pix'],A['kmax']
+gam1t,gam2t,fgam1r,fgam2r=A['gam1map'],A['gam2map'],A['k1res'],A['k2res']
+pix = A['pix']
 A.close()
 
-szx = gamap.shape[0]
-szk = Res.shape[0]
+szx = gam1t.shape[0]
+szk = fgam1r.shape[0]
+nbins = 15
 
-if real==0:
-    Out = Res
-    In = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(gamap)))
-    In = In[szx/2-int(szk/2):szx/2+int(szk/2)+1,szx/2-int(szk/2):szx/2+int(szk/2)+1]
-else:
-    Out = Res
-    In = scale.zoom(gamap,szk/np.float(szx))
+if smth:
+    u = np.fft.fftshift(np.fft.fftfreq(szk,pix*szx/szk))
+    uu,vv = np.meshgrid(u,u,sparse=1)
+    r = np.sqrt(uu**2+vv**2)
+    fgam1r[r>0.008]=0
+    fgam2r[r>0.008]=0
 
-mult = np.abs(Out).max()/np.abs(In).max()
-In *= mult
-diff = In-Out
-print 'm',mult
-print 'SN',np.abs(Out).max()/(diff[:,int(szk/2)+1:].std())
-
-plt.rcParams['image.cmap'] = 'bwr'
-Imax = np.abs(In).max()
-Omax = np.abs(Out).max()
-Dmax = np.abs(diff).max()
-plt.figure('In',figsize=(16,6))
-plt.subplot(121)
-plt.pcolor(np.abs(In),norm=cls.Normalize(-Imax,Imax))
-plt.colorbar()
-plt.subplot(122)
-plt.pcolor(np.abs(In)*np.angle(In))
-plt.colorbar()
-plt.figure('Out',figsize=(16,6))
-plt.subplot(121)
-plt.pcolor(np.abs(Out),norm=cls.Normalize(-Omax,Omax))
-plt.colorbar()
-plt.subplot(122)
-plt.pcolor(np.abs(Out)*np.angle(Out))
-plt.colorbar()
-plt.figure('diff')
-plt.hist((np.sign(diff.real)*np.abs(diff)).ravel())#,norm=cls.Normalize(-Dmax,Dmax))
-plt.show()
-plt.close()
+gam1r = np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam1r))).real
+gam2r = np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(fgam2r))).real
+gam1ts = gam1t.reshape(szk,szx/szk,szk,-1).mean((1,3))
+gam2ts = gam2t.reshape(szk,szx/szk,szk,-1).mean((1,3))
+    
+gamr = gam1r+complex(0,1)*gam2r
+gamts = gam1ts+complex(0,1)*gam2ts
+print 'r',stats.linregress(gamr.ravel(),gamts.ravel())[2]

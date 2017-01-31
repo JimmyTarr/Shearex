@@ -30,18 +30,17 @@ for i in range(szg):
     for j in range(szg):
         gamts[i,j] = gamt[nadv*i:nadv*(i+1),nadv*j:nadv*(j+1)].mean()
 
-smth = 0
-if smth>0:
-#    gamt = smooth(gamt,nadv*smth)
+m,c,r,p,stderr = stats.linregress(gamts.ravel(),gamr.ravel())
+gamr = (gamr-c)/m
+diff = gamts-gamr
+print 'mc',m,c
+print 'rp',r,p
+print 'SN',np.abs(gamt).mean()/diff.std()
+
+if len(sys.argv)>2:
+    smth = float(sys.argv[2])
     gamts = smooth(gamts,smth)
     gamr = smooth(gamr,smth)
-
-##m,c,r,p,stderr = stats.linregress(gamts.ravel(),gamr.ravel())
-##gamout = (gamout-c)/m
-##diff = gamin-gamout
-##print 'mc',m,c
-##print 'rp',r,p
-##print 'SN',np.abs(gamin).mean()/diff.std()
 
 ##plt.figure('In')
 ###plt.imshow(gamt,origin='lower',extent=(-600,600,-600,600),interpolation='nearest')
